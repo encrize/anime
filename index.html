@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AniWired — minimalist anime streaming</title>
+<link rel="preconnect" href="https://api.anilibria.tv" />
+<style>
+  :root{
+    --bg:#0d0e15; --panel:#161925; --panel-2:#1c2031; --border:#262a3d;
+    --text:#e7e9f2; --muted:#878da6; --accent:#a06bff; --accent-soft:rgba(160,107,255,.16);
+    --mint:#5eead4; --radius:14px; --shadow:0 8px 30px rgba(0,0,0,.45);
+    --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.5;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--accent-soft)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+
+  /* Layout */
+  header{position:sticky;top:0;z-index:30;backdrop-filter:blur(12px);
+    background:rgba(13,14,21,.82);border-bottom:1px solid var(--border)}
+  .bar{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:16px;
+    padding:14px 20px}
+  .logo{font-weight:800;letter-spacing:.5px;font-size:18px;white-space:nowrap}
+  .logo b{color:var(--accent)}
+  .search{flex:1;position:relative;max-width:560px}
+  .search input{width:100%;background:var(--panel);border:1px solid var(--border);
+    color:var(--text);padding:11px 14px 11px 40px;border-radius:12px;font-size:15px;
+    outline:none;transition:border-color .2s,box-shadow .2s}
+  .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+    width:18px;height:18px;color:var(--muted);pointer-events:none}
+  main{max-width:1180px;margin:0 auto;padding:24px 20px 80px}
+  .hint{color:var(--muted);font-size:14px}
+  .section-title{font-size:13px;text-transform:uppercase;letter-spacing:1.4px;
+    color:var(--muted);margin:10px 0 16px;font-weight:600}
+
+  /* Grid of results */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px}
+  .card{cursor:pointer;background:var(--panel);border:1px solid var(--border);
+    border-radius:var(--radius);overflow:hidden;transition:transform .18s,border-color .18s}
+  .card:hover{transform:translateY(-4px);border-color:var(--accent)}
+  .card .thumb{aspect-ratio:2/3;background:var(--panel-2) center/cover no-repeat;display:block}
+  .card .meta{padding:10px 12px}
+  .card .meta h3{font-size:14px;font-weight:600;line-height:1.3;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .meta span{font-size:12px;color:var(--muted)}
+
+  /* Detail view */
+  .detail{display:grid;grid-template-columns:260px 1fr;gap:28px;align-items:start}
+  .detail .poster{width:100%;border-radius:var(--radius);border:1px solid var(--border);
+    aspect-ratio:2/3;object-fit:cover;background:var(--panel-2)}
+  .detail h1{font-size:26px;line-height:1.2;margin-bottom:6px}
+  .detail .sub{color:var(--muted);font-size:14px;margin-bottom:16px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .chip{font-size:12px;background:var(--panel);border:1px solid var(--border);
+    padding:5px 10px;border-radius:20px;color:var(--muted)}
+  .desc{color:#c3c8dc;font-size:14.5px;margin-bottom:22px;white-space:pre-line}
+  .back{display:inline-flex;align-items:center;gap:6px;color:var(--muted);
+    font-size:14px;margin-bottom:18px;cursor:pointer}
+  .back:hover{color:var(--text)}
+
+  .controls-row{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:18px}
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+  select.ui{background:var(--panel);color:var(--text);border:1px solid var(--border);
+    padding:9px 12px;border-radius:10px;font-size:14px;outline:none;cursor:pointer;min-width:170px}
+  select.ui:focus{border-color:var(--accent)}
+
+  .episodes{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .ep{background:var(--panel);border:1px solid var(--border);color:var(--text);
+    padding:8px 14px;border-radius:10px;font-size:14px;cursor:pointer;transition:.15s}
+  .ep:hover{border-color:var(--accent)}
+  .ep.active{background:var(--accent);border-color:var(--accent);color:#0d0e15;font-weight:600}
+
+  /* Ambient Light (canvas glow behind the custom player) */
+  .player-stage{position:relative}
+  .player-stage .player-wrap{position:relative;z-index:1}
+  .ambient{position:absolute;left:-5%;top:-8%;width:110%;height:120%;z-index:0;
+    border-radius:28px;opacity:0;pointer-events:none;
+    filter:blur(60px) saturate(1.7) brightness(1.05);
+    transform:translateZ(0);will-change:opacity;transition:opacity .7s ease}
+  .player-stage.ambient-on .ambient{opacity:.8}
+  @media(max-width:720px){ .ambient{filter:blur(40px) saturate(1.6)} }
+
+  /* Player */
+  .player-wrap{position:relative;background:#000;border-radius:var(--radius);
+    overflow:hidden;border:1px solid var(--border);margin-bottom:18px;aspect-ratio:16/9}
+  .player-wrap.hidden{display:none}
+  video{width:100%;height:100%;display:block;background:#000}
+  .pl-controls{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 12px;
+    background:linear-gradient(transparent,rgba(0,0,0,.85));opacity:0;transition:opacity .25s;
+    display:flex;flex-direction:column;gap:8px}
+  .player-wrap:hover .pl-controls,.player-wrap.paused .pl-controls{opacity:1}
+  .timeline{appearance:none;width:100%;height:5px;border-radius:6px;cursor:pointer;
+    background:rgba(255,255,255,.18);outline:none}
+  .timeline::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);cursor:pointer}
+  .timeline::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;background:var(--accent)}
+  .pl-btns{display:flex;align-items:center;gap:14px}
+  .pl-btns .spacer{flex:1}
+  .iconbtn{background:none;border:none;color:#fff;cursor:pointer;width:30px;height:30px;
+    display:grid;place-items:center;opacity:.92;transition:.15s}
+  .iconbtn:hover{opacity:1;color:var(--accent)}
+  .iconbtn.active{color:var(--mint)}
+  .iconbtn svg{width:22px;height:22px}
+  .time{font-size:13px;color:#cfd3e6;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .vol{display:flex;align-items:center;gap:8px}
+  .vol input{appearance:none;width:80px;height:4px;border-radius:6px;background:rgba(255,255,255,.25);cursor:pointer}
+  .vol input::-webkit-slider-thumb{appearance:none;width:11px;height:11px;border-radius:50%;background:#fff}
+  .pl-select{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2);
+    border-radius:8px;font-size:12.5px;padding:5px 8px;cursor:pointer;outline:none}
+  .pl-select option{background:#161925}
+
+  /* Source tabs + embed player */
+  .source-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+  .src-tab{background:var(--panel);border:1px solid var(--border);color:var(--muted);
+    padding:9px 14px;border-radius:10px;font-size:13.5px;cursor:pointer;transition:.15s;font-weight:600}
+  .src-tab:hover{color:var(--text);border-color:var(--accent)}
+  .src-tab.active{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+  .embed-wrap{position:relative;aspect-ratio:16/9;border-radius:var(--radius);overflow:hidden;
+    border:1px solid var(--border);margin-bottom:18px;background:#000}
+  .embed-wrap.hidden{display:none}
+  .embed-wrap iframe{width:100%;height:100%;border:0;display:block}
+
+  /* States */
+  .state{padding:60px 0;text-align:center;color:var(--muted)}
+  .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .hidden{display:none!important}
+
+  /* Continue watching */
+  .resume{display:flex;align-items:center;gap:14px;background:var(--panel);
+    border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:26px;
+    cursor:pointer;transition:border-color .18s}
+  .resume:hover{border-color:var(--accent)}
+  .resume img{width:48px;height:66px;object-fit:cover;border-radius:8px;background:var(--panel-2)}
+  .resume .r-info h4{font-size:15px}
+  .resume .r-info p{font-size:13px;color:var(--muted)}
+  .resume .r-go{margin-left:auto;color:var(--accent);font-weight:600;font-size:14px}
+
+  @media(max-width:720px){
+    .detail{grid-template-columns:1fr}
+    .detail .poster{max-width:200px}
+    .bar{flex-wrap:wrap}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <div class="logo"><b>Israel</b></div>
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="searchInput" type="search" placeholder="Поиск аниме по названию…" autocomplete="off" />
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section id="home">
+      <div id="resumeSlot"></div>
+      <h2 class="section-title" id="resultsTitle">Популярное</h2>
+      <div id="results" class="grid"></div>
+      <div id="homeState" class="state hidden"></div>
+    </section>
+
+    <!-- DETAIL -->
+    <section id="detail" class="hidden">
+      <div class="back" id="backBtn">← Назад</div>
+
+      <div class="source-tabs" id="sourceTabs">
+        <button class="src-tab active" data-src="libria">AniLibria · RU озвучка</button>
+        <button class="src-tab" data-src="kodik">Kodik · все озвучки + субтитры</button>
+      </div>
+
+      <div class="embed-wrap hidden" id="embedWrap">
+        <iframe id="embedFrame" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="origin"></iframe>
+      </div>
+
+      <div class="player-stage" id="playerStage">
+        <canvas id="ambientCanvas" class="ambient" aria-hidden="true"></canvas>
+        <div class="player-wrap hidden" id="playerWrap">
+        <video id="video" playsinline></video>
+        <div class="pl-controls">
+          <input id="timeline" class="timeline" type="range" min="0" max="100" value="0" step="0.1" />
+          <div class="pl-btns">
+            <button class="iconbtn" id="playBtn" title="Play/Pause"></button>
+            <div class="vol">
+              <button class="iconbtn" id="muteBtn" title="Mute"></button>
+              <input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
+            </div>
+            <span class="time" id="timeLabel">0:00 / 0:00</span>
+            <span class="spacer"></span>
+            <button class="iconbtn" id="ambientBtn" title="Фоновое свечение (Ambient Light)"></button>
+            <button class="iconbtn" id="subBtn" title="Субтитры">CC</button>
+            <select id="qualitySel" class="pl-select" title="Качество"></select>
+            <button class="iconbtn" id="fsBtn" title="Fullscreen"></button>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <div class="detail">
+        <img id="dPoster" class="poster" alt="" />
+        <div>
+          <h1 id="dTitle"></h1>
+          <div class="sub" id="dSub"></div>
+          <div class="chips" id="dChips"></div>
+          <p class="desc" id="dDesc"></p>
+
+          <div class="controls-row">
+            <div class="field">
+              <label>Озвучка / Команда</label>
+              <select id="teamSel" class="ui"></select>
+            </div>
+          </div>
+
+          <label class="section-title" style="display:block">Эпизоды</label>
+          <div id="episodes" class="episodes"></div>
+        </div>
+      </div>
+      <div id="detailState" class="state hidden"></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+  <script>
+  /* ============ AniWired — Vanilla JS anime streaming ============ */
+  const API  = 'https://anilibria.top/api/v1';
+  const SITE = 'https://anilibria.top';
+  const STORE = 'aniwired:last';
+
+  const $  = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => [...r.querySelectorAll(s)];
+
+  const el = {
+    searchInput:$('#searchInput'), results:$('#results'), resultsTitle:$('#resultsTitle'),
+    homeState:$('#homeState'), home:$('#home'), detail:$('#detail'), backBtn:$('#backBtn'),
+    resumeSlot:$('#resumeSlot'), detailState:$('#detailState'),
+    poster:$('#dPoster'), title:$('#dTitle'), sub:$('#dSub'), chips:$('#dChips'),
+    desc:$('#dDesc'), teamSel:$('#teamSel'), episodes:$('#episodes'),
+    playerWrap:$('#playerWrap'), video:$('#video'),
+    timeline:$('#timeline'), playBtn:$('#playBtn'), muteBtn:$('#muteBtn'),
+    volume:$('#volume'), timeLabel:$('#timeLabel'), subBtn:$('#subBtn'),
+    qualitySel:$('#qualitySel'), fsBtn:$('#fsBtn'), ambientBtn:$('#ambientBtn'),
+    sourceTabs:$('#sourceTabs'), embedWrap:$('#embedWrap'), embedFrame:$('#embedFrame'),
+  };
+
+  /* ---- state ---- */
+  let hls = null;
+  let current = { title:null, host:'', episodes:[], ep:null, quality:'fhd', mode:'libria', kodikLink:undefined, malId:undefined };
+
+  /* ---- icons (inline SVG, swapped on state change) ---- */
+  const ICON = {
+    play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    pause:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>',
+    vol:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4h4l5 5V5L7 10H3z"/><path d="M16 8a5 5 0 010 8" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+    mute:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4h4l5 5V5L7 10H3z"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2"/></svg>',
+    fs:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+    ambient:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+  };
+
+  /* ---- API helpers ---- */
+  async function api(path){
+    const r = await fetch(API + path, { headers:{ Accept:'application/json' } });
+    if(!r.ok) throw new Error('API ' + r.status);
+    return r.json();
+  }
+  const pickList      = d => Array.isArray(d) ? d : (d && Array.isArray(d.data)) ? d.data : [];
+  const searchTitles  = q  => api('/app/search/releases?query=' + encodeURIComponent(q)).then(pickList);
+  const updatesTitles = () => api('/anime/releases/latest?limit=24').then(pickList);
+  const getTitle      = id => api('/anime/releases/' + id);
+  const posterUrl     = t  => { const p = t.poster && (t.poster.src || (t.poster.optimized && t.poster.optimized.src)); return p ? (/^https?:/.test(p) ? p : SITE + p) : ''; };
+
+  /* ---- routing between home / detail ---- */
+  function showHome(){ el.detail.classList.add('hidden'); el.home.classList.remove('hidden'); teardownPlayer(); el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank'; }
+  function showDetail(){ el.home.classList.add('hidden'); el.detail.classList.remove('hidden'); }
+
+  /* ---- render results grid ---- */
+  function renderResults(list){
+    el.results.innerHTML = '';
+    if(!list.length){ el.results.innerHTML = '<p class="hint">Ничего не найдено.</p>'; return; }
+    const frag = document.createDocumentFragment();
+    for(const t of list){
+      const c = document.createElement('div');
+      c.className = 'card';
+      c.innerHTML =
+        '<span class="thumb" style="background-image:url(' + posterUrl(t) + ')"></span>' +
+        '<div class="meta"><h3>' + escapeHtml(titleName(t)) + '</h3>' +
+        '<span>' + (t.type ? (t.type.description || t.type.value || '') : '') + (releaseYear(t) ? ' • ' + releaseYear(t) : '') + '</span></div>';
+      c.onclick = () => t._kodik ? openKodikTitle(t) : openTitle(t.id);
+      frag.appendChild(c);
+    }
+    el.results.appendChild(frag);
+  }
+
+  /* ---- open a title detail ---- */
+  async function openTitle(id, resume){
+    showDetail();
+    el.playerWrap.classList.add('hidden');
+    el.detailState.classList.remove('hidden');
+    el.detailState.innerHTML = '<div class="spinner"></div>Загрузка…';
+    try{
+      const t = await getTitle(id);
+      current.title = t;
+      current.episodes = Array.isArray(t.episodes) ? t.episodes : [];
+      current.kodikLink = undefined; current.malId = undefined; current.ep = null;
+      setKodikOnlyTabs(false);
+      setMode('libria');
+      el.detailState.classList.add('hidden');
+
+      el.poster.src = posterUrl(t);
+      el.title.textContent = titleName(t);
+      el.sub.textContent = [t.name && t.name.english, t.type && (t.type.description || t.type.value), releaseYear(t)].filter(Boolean).join(' • ');
+      el.desc.textContent = (t.description || '').replace(/\n{3,}/g, '\n\n');
+
+      el.chips.innerHTML = '';
+      (t.genres || []).slice(0,6).forEach(g => addChip(typeof g === 'string' ? g : g.name));
+      if(t.publish_day && t.publish_day.description) addChip(t.publish_day.description);
+
+      // Voiceover team: members with a voicing role
+      el.teamSel.innerHTML = '';
+      const voices = (t.members || []).filter(m => m.role && /озвуч|voic|dub/i.test(m.role.description || m.role.value || '')).map(m => m.nickname || (m.user && m.user.name) || '').filter(Boolean);
+      el.teamSel.innerHTML = '<option>' + escapeHtml(voices.length ? voices.join(', ') : 'AniLibria') + '</option>';
+
+      renderEpisodes(resume);
+    }catch(e){
+      el.detailState.innerHTML = 'Ошибка загрузки: ' + e.message;
+    }
+  }
+
+  function addChip(text){
+    const c = document.createElement('span'); c.className='chip'; c.textContent=text; el.chips.appendChild(c);
+  }
+
+  /* ---- episodes list ---- */
+  function renderEpisodes(resume){
+    el.episodes.innerHTML = '';
+    if(!current.episodes.length){ el.episodes.innerHTML='<p class="hint">Серии недоступны.</p>'; return; }
+    current.episodes.forEach((ep, i) => {
+      const b = document.createElement('button');
+      b.className='ep'; b.dataset.idx = i;
+      b.textContent = 'Серия ' + (ep.ordinal != null ? ep.ordinal : (i+1));
+      b.onclick = () => selectEpisode(i);
+      el.episodes.appendChild(b);
+    });
+    if(resume && resume.idx != null && current.episodes[resume.idx]){
+      playEpisode(resume.idx, resume.quality, resume.time);
+    }
+  }
+
+  /* ---- pick available qualities from API hls object ---- */
+  function qualitiesOf(ep){
+    const map = [ ['hls_1080','1080p'], ['hls_720','720p'], ['hls_480','480p'] ];
+    return map.filter(p => ep[p[0]]).map(p => ({ key:p[0], label:p[1] }));
+  }
+  const streamUrl = (ep, q) => ep[q];
+
+  /* ---- load + play a stream via hls.js ---- */
+  function loadStream(url, seekTo){
+    teardownPlayer();
+    const v = el.video;
+    if(v.canPlayType('application/vnd.apple.mpegurl')){
+      v.src = url; // native HLS (Safari)
+    } else if(window.Hls && Hls.isSupported()){
+      hls = new Hls({ maxBufferLength:30, capLevelToPlayerSize:true });
+      hls.loadSource(url);
+      hls.attachMedia(v);
+    } else {
+      el.detailState.classList.remove('hidden');
+      el.detailState.textContent = 'HLS не поддерживается этим браузером.';
+      return;
+    }
+    const onReady = () => {
+      if(seekTo) v.currentTime = seekTo;
+      v.play().catch(()=>{});
+      v.removeEventListener('loadedmetadata', onReady);
+    };
+    v.addEventListener('loadedmetadata', onReady);
+  }
+
+  function teardownPlayer(){ if(hls){ hls.destroy(); hls=null; } if(typeof stopAmbient === 'function') stopAmbient(false); }
+
+  /* ---- play a specific episode ---- */
+  function playEpisode(idx, quality, seekTo){
+    const ep = current.episodes[idx];
+    if(!ep) return;
+    current.ep = idx;
+    current.mode = 'libria';
+    el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
+    $$('.src-tab', el.sourceTabs).forEach(b => b.classList.toggle('active', b.dataset.src === 'libria'));
+    const qs = qualitiesOf(ep);
+    if(!qs.length){ alert('Для этой серии нет видеопотока.'); return; }
+    current.quality = (quality && qs.some(q=>q.key===quality)) ? quality : qs[0].key;
+
+    // quality selector
+    el.qualitySel.innerHTML = qs.map(q => '<option value="'+q.key+'"'+(q.key===current.quality?' selected':'')+'>'+q.label+'</option>').join('');
+
+    // active episode highlight
+    $$('.ep', el.episodes).forEach(b => b.classList.toggle('active', +b.dataset.idx === idx));
+
+    el.playerWrap.classList.remove('hidden');
+    loadStream(streamUrl(ep, current.quality), seekTo);
+    saveProgress();
+  }
+
+  /* ---- switch quality, keep position ---- */
+  el.qualitySel.onchange = () => {
+    const ep = current.episodes[current.ep];
+    const t = el.video.currentTime;
+    current.quality = el.qualitySel.value;
+    loadStream(streamUrl(ep, current.quality), t);
+    saveProgress();
+  };
+
+  /* ---- source switching: AniLibria (RU custom player) vs Kodik (all voices + subs) ---- */
+  function selectEpisode(i){ current.mode === 'kodik' ? loadKodik() : playEpisode(i); }
+
+  function setMode(mode){
+    current.mode = mode;
+    $$('.src-tab', el.sourceTabs).forEach(b => b.classList.toggle('active', b.dataset.src === mode));
+    if(mode === 'kodik'){ loadKodik(); return; }
+    el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
+    if(current.ep != null) playEpisode(current.ep);
+  }
+
+  /* ---- Kodik: one universal embed player with every voiceover AND subtitles ----
+     Kodik search needs a free API token. We try to auto-extract it from Kodik's
+     public player script; if that fails (CORS), the user pastes a token once
+     (saved in localStorage). The returned //kodik.info/... link is an iframe embed
+     whose own UI switches episode, quality, voiceover and subtitles. */
+  const KODIK_API = 'https://kodikapi.com';
+  // Kodik player/embed domain. kodik.info is widely DNS-blocked by RU/KZ ISPs;
+  // kodikplayer.com is the current primary domain and is usually reachable.
+  // If it gets blocked too, swap to a working mirror: kodik.biz / kodik.cc.
+  const KODIK_PLAYER = 'https://kodikplayer.com';
+
+  // Resolve MyAnimeList/Shikimori id via AniList GraphQL (public + CORS-enabled).
+  // For anime, Shikimori ids are the MAL ids, so AniList's idMal works directly.
+  async function resolveMalId(t){
+    if(current.malId !== undefined) return current.malId;
+    const s = (t.name && (t.name.english || t.name.romaji || t.name.main)) || t.alias || titleName(t);
+    try{
+      const r = await fetch('https://graphql.anilist.co', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify({ query:'query($s:String){Media(search:$s,type:ANIME){idMal}}', variables:{ s } })
+      });
+      const j = await r.json();
+      current.malId = (j.data && j.data.Media && j.data.Media.idMal) || null;
+    }catch(e){ current.malId = null; }
+    return current.malId;
+  }
+
+  async function kodikToken(){
+    let tok = localStorage.getItem('kodik:token');
+    if(tok) return tok;
+    try{
+      const r = await fetch('https://kodik-add.com/add-players.min.js?v=2');
+      const txt = await r.text();
+      const m = txt.match(/['"]?token['"]?\s*[:=]\s*['"]([0-9a-zA-Z]+)['"]/);
+      if(m && m[1]){ tok = m[1]; localStorage.setItem('kodik:token', tok); return tok; }
+    }catch(e){ /* CORS or network — fall through to manual entry */ }
+    return null;
+  }
+
+  function askKodikToken(){
+    el.embedWrap.classList.add('hidden');
+    el.detailState.classList.remove('hidden');
+    el.detailState.innerHTML =
+      '<p style="margin-bottom:12px">Для источника Kodik нужен бесплатный API-токен. ' +
+      'Вставь его один раз — он сохранится локально (localStorage).</p>' +
+      '<input id="kodikTokenInput" class="ui" style="min-width:280px" placeholder="Kodik API token" /> ' +
+      '<button id="kodikTokenSave" class="src-tab active">Сохранить</button>';
+    $('#kodikTokenSave').onclick = () => {
+      const val = $('#kodikTokenInput').value.trim();
+      if(!val) return;
+      localStorage.setItem('kodik:token', val);
+      loadKodik();
+    };
+  }
+
+  async function searchKodik(token, t){
+    const name = (t.name && (t.name.english || t.name.main)) || t.alias || titleName(t);
+    const params = new URLSearchParams({ token, title: name, limit: '50' });
+    const r = await fetch(KODIK_API + '/search?' + params.toString());
+    if(!r.ok) throw new Error('Kodik ' + r.status);
+    const j = await r.json();
+    return Array.isArray(j.results) ? j.results : [];
+  }
+
+  // Prefer original audio + subtitles; fall back to the first available result.
+  function pickKodik(results){
+    if(!results.length) return null;
+    return results.find(x => x.translation && x.translation.type === 'subtitles') || results[0];
+  }
+
+  async function loadKodik(){
+    teardownPlayer();
+    el.playerWrap.classList.add('hidden');
+    if(current.kodikLink){
+      el.detailState.classList.add('hidden');
+      el.embedWrap.classList.remove('hidden');
+      el.embedFrame.src = current.kodikLink;
+      return;
+    }
+    const token = await kodikToken();
+    if(!token){ askKodikToken(); return; }
+    el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
+    el.detailState.classList.remove('hidden');
+    el.detailState.innerHTML = '<div class="spinner"></div>Ищу в Kodik…';
+
+    // Path 1 (no backend): embed Kodik by external ID through an IFRAME.
+    // Iframes are NOT subject to CORS, so this works from a plain static .html file.
+    // The MAL/Shikimori id comes from AniList GraphQL, which IS CORS-enabled.
+    const malId = await resolveMalId(current.title);
+    if(malId){
+      current.kodikLink = KODIK_PLAYER + '/find-player?shikimoriID=' + malId + '&token=' + encodeURIComponent(token);
+      el.detailState.classList.add('hidden');
+      el.embedWrap.classList.remove('hidden');
+      el.embedFrame.src = current.kodikLink;
+      return;
+    }
+
+    // Path 2 (fallback): search API by title. This is a fetch() and may be
+    // blocked by CORS from a static file — then a public CORS proxy is needed.
+    try{
+      const results = await searchKodik(token, current.title);
+      const hit = pickKodik(results);
+      if(!hit || !hit.link){ el.detailState.innerHTML = 'В Kodik ничего не найдено для этого тайтла.'; return; }
+      current.kodikLink = (hit.link.indexOf('//') === 0 ? 'https:' : '') + hit.link;
+      el.detailState.classList.add('hidden');
+      el.embedWrap.classList.remove('hidden');
+      el.embedFrame.src = current.kodikLink;
+    }catch(e){
+      el.detailState.innerHTML = 'Не удалось получить плеер Kodik по названию: ' + e.message +
+        '<br><span class="hint">Iframe-встраивание по ID (без бэкенда) сработало бы, но внешний ID для этого тайтла не нашёлся. Поиск по названию упирается в CORS — нужен публичный CORS-proxy.</span>';
+    }
+  }
+
+  /* ---- Kodik-only titles (not in AniLibria): search the AniList catalog ----
+     AniList GraphQL is public + CORS-enabled, so we can list matches here and
+     then play them through the universal Kodik iframe by their MAL/Shikimori id. */
+  async function searchAniListTitles(q){
+    try{
+      const r = await fetch('https://graphql.anilist.co', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify({
+          query:'query($s:String){Page(perPage:24){media(search:$s,type:ANIME,sort:SEARCH_MATCH){id idMal title{romaji english native} description(asHtml:false) episodes format seasonYear coverImage{large} genres}}}',
+          variables:{ s:q }
+        })
+      });
+      const j = await r.json();
+      const media = (j.data && j.data.Page && j.data.Page.media) || [];
+      return media.map(m => ({
+        _kodik:true,
+        _mal:(m.idMal != null ? m.idMal : null),
+        id:'al-' + m.id,
+        name:{ main:(m.title.romaji || m.title.english || m.title.native), english:m.title.english, romaji:m.title.romaji },
+        poster:{ src:(m.coverImage && m.coverImage.large) || '' },
+        type:{ description:(m.format || '').replace(/_/g,' ') },
+        year:(m.seasonYear || null),
+        description:(m.description || '').replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,''),
+        genres:(m.genres || [])
+      }));
+    }catch(e){ return []; }
+  }
+
+  // Show/hide the AniLibria tab (Kodik-only titles have no AniLibria release).
+  function setKodikOnlyTabs(kodikOnly){
+    const libria = $$('.src-tab', el.sourceTabs).find(b => b.dataset.src === 'libria');
+    if(libria) libria.classList.toggle('hidden', !!kodikOnly);
+  }
+
+  // Open a Kodik-only title (resolved via AniList) straight into the Kodik player.
+  async function openKodikTitle(t){
+    showDetail();
+    el.playerWrap.classList.add('hidden');
+    el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
+    el.detailState.classList.add('hidden');
+    current.title = t;
+    current.episodes = [];
+    current.kodikLink = undefined;
+    current.malId = (t._mal != null ? t._mal : null);
+    current.ep = null;
+
+    el.poster.src = posterUrl(t);
+    el.title.textContent = titleName(t);
+    el.sub.textContent = [t.name && t.name.english, t.type && t.type.description, releaseYear(t)].filter(Boolean).join(' • ');
+    el.desc.textContent = (t.description || '').replace(/\n{3,}/g,'\n\n');
+    el.chips.innerHTML = '';
+    (t.genres || []).slice(0,6).forEach(g => addChip(typeof g === 'string' ? g : g.name));
+    el.teamSel.innerHTML = '<option>Kodik — переключение внутри плеера</option>';
+    el.episodes.innerHTML = '<p class="hint">Серии, озвучки и субтитры переключаются прямо в плеере Kodik ниже.</p>';
+
+    setKodikOnlyTabs(true);
+    setMode('kodik');
+  }
+
+  /* ============ Custom player controls ============ */
+  const v = el.video;
+  el.playBtn.innerHTML = ICON.play;
+  el.muteBtn.innerHTML = ICON.vol;
+  el.fsBtn.innerHTML   = ICON.fs;
+  el.ambientBtn.innerHTML = ICON.ambient;
+
+  /* ---- Ambient Light: sample the current video frame into a tiny hidden canvas,
+     then scale it up + blur it via CSS as a soft glow behind the player.
+     Drawing onto a 32x18 canvas at ~9 fps keeps CPU usage negligible, and the
+     loop only runs while playing + the tab is visible. Toggleable + persisted.
+     Works for the AniLibria player; Kodik is a cross-origin iframe (no pixels). */
+  const ambient = {
+    canvas: $('#ambientCanvas'),
+    stage:  $('#playerStage'),
+    ctx:    null,
+    raf:    0,
+    last:   0,
+    enabled: localStorage.getItem('aniwired:ambient') !== '0',
+  };
+  ambient.ctx = ambient.canvas.getContext('2d');
+  ambient.canvas.width = 32; ambient.canvas.height = 18;
+
+  function ambientLoop(ts){
+    ambient.raf = requestAnimationFrame(ambientLoop);
+    if(ts - ambient.last < 110) return;            // ~9 fps — smooth glow, light CPU
+    ambient.last = ts;
+    if(v.paused || v.readyState < 2) return;
+    try{ ambient.ctx.drawImage(v, 0, 0, ambient.canvas.width, ambient.canvas.height); }catch(e){}
+  }
+  function startAmbient(){
+    if(!ambient.enabled || current.mode !== 'libria' || v.paused) return;
+    ambient.stage.classList.add('ambient-on');
+    if(!ambient.raf){ ambient.last = 0; ambient.raf = requestAnimationFrame(ambientLoop); }
+  }
+  function stopAmbient(keepGlow){
+    if(ambient.raf){ cancelAnimationFrame(ambient.raf); ambient.raf = 0; }
+    if(!keepGlow){ ambient.stage.classList.remove('ambient-on'); ambient.ctx.clearRect(0,0,ambient.canvas.width,ambient.canvas.height); }
+  }
+  function setAmbient(on){
+    ambient.enabled = on;
+    localStorage.setItem('aniwired:ambient', on ? '1' : '0');
+    el.ambientBtn.classList.toggle('active', on);
+    el.ambientBtn.title = on ? 'Фоновое свечение: вкл' : 'Фоновое свечение: выкл';
+    on ? startAmbient() : stopAmbient(false);
+  }
+  el.ambientBtn.onclick = () => setAmbient(!ambient.enabled);
+  document.addEventListener('visibilitychange', () => { document.hidden ? stopAmbient(true) : startAmbient(); });
+  el.ambientBtn.classList.toggle('active', ambient.enabled);
+  el.ambientBtn.title = ambient.enabled ? 'Фоновое свечение: вкл' : 'Фоновое свечение: выкл';
+
+  function togglePlay(){ v.paused ? v.play() : v.pause(); }
+  el.playBtn.onclick = togglePlay;
+  v.onclick = togglePlay;
+  v.onplay  = () => { el.playBtn.innerHTML = ICON.pause; el.playerWrap.classList.remove('paused'); startAmbient(); };
+  v.onpause = () => { el.playBtn.innerHTML = ICON.play;  el.playerWrap.classList.add('paused'); stopAmbient(true); };
+
+  v.ontimeupdate = () => {
+    if(v.duration){
+      el.timeline.value = (v.currentTime / v.duration) * 100;
+      el.timeline.style.background =
+        'linear-gradient(90deg,var(--accent) ' + el.timeline.value + '%,rgba(255,255,255,.18) ' + el.timeline.value + '%)';
+    }
+    el.timeLabel.textContent = fmt(v.currentTime) + ' / ' + fmt(v.duration);
+    throttleSave();
+  };
+  el.timeline.oninput = () => { if(v.duration) v.currentTime = (el.timeline.value/100) * v.duration; };
+
+  el.volume.oninput = () => { v.volume = el.volume.value; v.muted = v.volume === 0; updateMute(); };
+  el.muteBtn.onclick = () => { v.muted = !v.muted; updateMute(); };
+  function updateMute(){
+    el.muteBtn.innerHTML = (v.muted || v.volume===0) ? ICON.mute : ICON.vol;
+    if(!v.muted && v.volume>0) el.volume.value = v.volume;
+  }
+
+  // Subtitles toggle (enabled only if the stream exposes text tracks)
+  el.subBtn.onclick = () => {
+    const tracks = v.textTracks;
+    if(!tracks || !tracks.length){ el.subBtn.title='Субтитры недоступны'; el.subBtn.style.opacity=.4; return; }
+    const on = tracks[0].mode !== 'showing';
+    for(const tr of tracks) tr.mode = on ? 'showing' : 'hidden';
+    el.subBtn.classList.toggle('active', on);
+  };
+
+  el.fsBtn.onclick = () => {
+    if(document.fullscreenElement) document.exitFullscreen();
+    else el.playerWrap.requestFullscreen().catch(()=>{});
+  };
+
+  // keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    if(el.detail.classList.contains('hidden') || el.playerWrap.classList.contains('hidden')) return;
+    if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+    if(e.code==='ArrowRight') v.currentTime += 5;
+    if(e.code==='ArrowLeft')  v.currentTime -= 5;
+    if(e.code==='KeyF') el.fsBtn.click();
+    if(e.code==='KeyM') el.muteBtn.click();
+  });
+
+  /* ============ localStorage persistence ============ */
+  let lastSave = 0;
+  function throttleSave(){ const now=Date.now(); if(now-lastSave>4000){ lastSave=now; saveProgress(); } }
+  function saveProgress(){
+    if(!current.title || current.ep==null) return;
+    const t = current.title;
+    localStorage.setItem(STORE, JSON.stringify({
+      id:t.id, name:titleName(t), poster:posterUrl(t),
+      idx:current.ep, quality:current.quality, time:Math.floor(el.video.currentTime)||0,
+      epLabel:(current.episodes[current.ep] && current.episodes[current.ep].ordinal) || (current.ep+1),
+      ts:Date.now()
+    }));
+    renderResume();
+  }
+  v.addEventListener('pause', saveProgress);
+  window.addEventListener('beforeunload', saveProgress);
+
+  function renderResume(){
+    const raw = localStorage.getItem(STORE);
+    if(!raw){ el.resumeSlot.innerHTML=''; return; }
+    let d; try{ d = JSON.parse(raw); }catch{ return; }
+    el.resumeSlot.innerHTML =
+      '<h2 class="section-title">Продолжить просмотр</h2>' +
+      '<div class="resume"><img src="'+d.poster+'" alt=""/>' +
+      '<div class="r-info"><h4>'+escapeHtml(d.name)+'</h4>' +
+      '<p>Серия '+d.epLabel+' • '+fmt(d.time)+'</p></div>' +
+      '<span class="r-go">▶ Продолжить</span></div>';
+    $('.resume', el.resumeSlot).onclick = () => openTitle(d.id, { idx:d.idx, quality:d.quality, time:d.time });
+  }
+
+  /* ============ helpers ============ */
+  function titleName(t){ return (t.name && (t.name.main || t.name.english)) || t.alias || 'Без названия'; }
+  function releaseYear(t){ return (t.year && typeof t.year === 'object') ? t.year.value : t.year; }
+  function fmt(s){ s=Math.floor(s||0); const m=Math.floor(s/60), sec=s%60; return m+':' + String(sec).padStart(2,'0'); }
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function debounce(fn,ms){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a),ms); }; }
+
+  /* ============ search wiring ============ */
+  el.searchInput.addEventListener('input', debounce(async e => {
+    const q = e.target.value.trim();
+    if(!q){ if(!el.detail.classList.contains('hidden')) showHome(); loadHome(); return; }
+    // If we're on the detail/player view, jump back to the results grid so search is visible.
+    if(!el.detail.classList.contains('hidden')) showHome();
+    el.resultsTitle.textContent = 'Результаты: "' + q + '"';
+    el.results.innerHTML = '<div class="spinner"></div>';
+    try{
+      let list = await searchTitles(q);
+      if(!list.length){
+        const ext = await searchAniListTitles(q);
+        if(ext.length){ el.resultsTitle.textContent = 'Нет в AniLibria — нашёл для Kodik: "' + q + '"'; renderResults(ext); return; }
+      }
+      renderResults(list);
+    }
+    catch(err){ el.results.innerHTML = '<p class="hint">Ошибка поиска: '+err.message+'</p>'; }
+  }, 350));
+
+  el.backBtn.onclick = showHome;
+  $$('.src-tab', el.sourceTabs).forEach(b => b.onclick = () => setMode(b.dataset.src));
+
+  /* ============ init ============ */
+  async function loadHome(){
+    el.resultsTitle.textContent = 'Новые серии';
+    el.results.innerHTML = '<div class="spinner"></div>';
+    try{ renderResults(await updatesTitles()); }
+    catch(err){ el.results.innerHTML = '<p class="hint">Не удалось загрузить: '+err.message+'</p>'; }
+  }
+  renderResume();
+  loadHome();
+  </script>
+</body>
+</html>
