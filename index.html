@@ -27,8 +27,14 @@
     background:rgba(13,14,21,.82);border-bottom:1px solid var(--border)}
   .bar{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:16px;
     padding:14px 20px}
-  .logo{font-weight:800;letter-spacing:.5px;font-size:18px;white-space:nowrap}
+  .logo{font-weight:800;letter-spacing:.5px;font-size:18px;white-space:nowrap;
+    cursor:pointer;user-select:none;display:flex;align-items:center;gap:7px;
+    transition:opacity .15s,transform .15s}
+  .logo:hover{opacity:.85}
+  .logo:active{transform:scale(.96)}
   .logo b{color:var(--accent)}
+  .logo .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 10px var(--accent);flex:0 0 auto}
   .search{flex:1;position:relative;max-width:560px}
   .search input{width:100%;background:var(--panel);border:1px solid var(--border);
     color:var(--text);padding:11px 14px 11px 40px;border-radius:12px;font-size:15px;
@@ -103,8 +109,8 @@
   .timeline::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;
     background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);cursor:pointer}
   .timeline::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;background:var(--accent)}
-  .pl-btns{display:flex;align-items:center;gap:14px}
-  .pl-btns .spacer{flex:1}
+  .pl-btns{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .pl-btns .spacer{flex:1;min-width:4px}
   .iconbtn{background:none;border:none;color:#fff;cursor:pointer;width:30px;height:30px;
     display:grid;place-items:center;opacity:.92;transition:.15s}
   .iconbtn:hover{opacity:1;color:var(--accent)}
@@ -146,17 +152,64 @@
   .resume .r-info p{font-size:13px;color:var(--muted)}
   .resume .r-go{margin-left:auto;color:var(--accent);font-weight:600;font-size:14px}
 
+  /* Picture-in-Picture floating mini-bar (return to player) */
+  .mini-return{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(120%);
+    display:flex;align-items:center;gap:12px;background:var(--panel-2);
+    border:1px solid var(--accent);border-radius:14px;padding:10px 14px;z-index:60;
+    box-shadow:var(--shadow);cursor:pointer;max-width:calc(100vw - 32px);
+    opacity:0;pointer-events:none;transition:transform .3s ease,opacity .3s ease}
+  .mini-return.show{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
+  .mini-return img{width:36px;height:50px;object-fit:cover;border-radius:7px;background:var(--panel)}
+  .mini-return .mr-info{min-width:0}
+  .mini-return .mr-info h5{font-size:13.5px;font-weight:600;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;max-width:200px}
+  .mini-return .mr-info p{font-size:12px;color:var(--muted)}
+  .mini-return .mr-go{margin-left:4px;color:var(--accent);font-weight:700;font-size:14px;white-space:nowrap}
+  .mini-return .mr-close{background:none;border:none;color:var(--muted);cursor:pointer;
+    font-size:18px;line-height:1;padding:4px;border-radius:6px}
+  .mini-return .mr-close:hover{color:var(--text);background:rgba(255,255,255,.08)}
+
+  /* Toast */
+  .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(20px);
+    background:rgba(20,22,34,.96);border:1px solid var(--border);color:var(--text);
+    padding:11px 18px;border-radius:12px;font-size:14px;z-index:70;box-shadow:var(--shadow);
+    opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;max-width:90vw;text-align:center}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* Keyboard / gesture hint chip */
+  .kbd{display:inline-block;background:var(--panel);border:1px solid var(--border);
+    border-radius:6px;padding:1px 6px;font-size:11px;color:var(--muted);font-family:monospace}
+
   @media(max-width:720px){
     .detail{grid-template-columns:1fr}
-    .detail .poster{max-width:200px}
-    .bar{flex-wrap:wrap}
+    .detail .poster{max-width:160px;margin:0 auto}
+    .bar{flex-wrap:wrap;gap:10px;padding:11px 14px}
+    .search{max-width:none;order:3;flex-basis:100%}
+    main{padding:18px 14px 90px}
+    .grid{grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:12px}
+    .card .meta{padding:8px 10px}
+    .card .meta h3{font-size:13px}
+    .detail h1{font-size:21px}
+    /* On touch screens controls should stay visible (no hover) */
+    .pl-controls{opacity:1}
+    .iconbtn{width:34px;height:34px}
+    .iconbtn svg{width:24px;height:24px}
+    .vol input{width:60px}
+    .source-tabs{gap:6px}
+    .src-tab{padding:8px 11px;font-size:12.5px}
+    .ep{padding:9px 15px}
   }
+  @media(max-width:420px){
+    .grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
+    .vol{display:none}
+  }
+  @media (hover:none){ .pl-controls{opacity:1} }
 </style>
 </head>
 <body>
   <header>
     <div class="bar">
-      <div class="logo"><b>Israel</b></div>
+      <div class="logo" id="logoBtn" title="На главную" role="button" tabindex="0"><b>Israel</b></div>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         <input id="searchInput" type="search" placeholder="Поиск аниме по названию…" autocomplete="off" />
@@ -193,7 +246,9 @@
         <div class="pl-controls">
           <input id="timeline" class="timeline" type="range" min="0" max="100" value="0" step="0.1" />
           <div class="pl-btns">
+            <button class="iconbtn" id="rewBtn" title="−10 сек"></button>
             <button class="iconbtn" id="playBtn" title="Play/Pause"></button>
+            <button class="iconbtn" id="fwdBtn" title="+10 сек"></button>
             <div class="vol">
               <button class="iconbtn" id="muteBtn" title="Mute"></button>
               <input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
@@ -203,6 +258,7 @@
             <button class="iconbtn" id="ambientBtn" title="Фоновое свечение (Ambient Light)"></button>
             <button class="iconbtn" id="subBtn" title="Субтитры">CC</button>
             <select id="qualitySel" class="pl-select" title="Качество"></select>
+            <button class="iconbtn" id="pipBtn" title="Картинка в картинке (P)"></button>
             <button class="iconbtn" id="fsBtn" title="Fullscreen"></button>
           </div>
         </div>
@@ -232,6 +288,19 @@
     </section>
   </main>
 
+  <!-- Floating mini-bar to return to the still-playing player -->
+  <div class="mini-return" id="miniReturn">
+    <img id="mrPoster" alt="" />
+    <div class="mr-info">
+      <h5 id="mrTitle"></h5>
+      <p id="mrSub">▶ продолжает играть</p>
+    </div>
+    <span class="mr-go">Вернуться</span>
+    <button class="mr-close" id="mrClose" title="Закрыть и остановить">✕</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
   <script>
   /* ============ AniWired — Vanilla JS anime streaming ============ */
@@ -253,6 +322,9 @@
     volume:$('#volume'), timeLabel:$('#timeLabel'), subBtn:$('#subBtn'),
     qualitySel:$('#qualitySel'), fsBtn:$('#fsBtn'), ambientBtn:$('#ambientBtn'),
     sourceTabs:$('#sourceTabs'), embedWrap:$('#embedWrap'), embedFrame:$('#embedFrame'),
+    logo:$('#logoBtn'), pipBtn:$('#pipBtn'), rewBtn:$('#rewBtn'), fwdBtn:$('#fwdBtn'),
+    miniReturn:$('#miniReturn'), mrPoster:$('#mrPoster'), mrTitle:$('#mrTitle'),
+    mrClose:$('#mrClose'), toast:$('#toast'),
   };
 
   /* ---- state ---- */
@@ -267,6 +339,9 @@
     mute:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10v4h4l5 5V5L7 10H3z"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2"/></svg>',
     fs:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
     ambient:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+    pip:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><rect x="12" y="11" width="7" height="5" rx="1" fill="currentColor"/></svg>',
+    rew:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M11 18L3 12l8-6v12z"/><path d="M21 18l-8-6 8-6v12z"/></svg>',
+    fwd:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M13 18l8-6-8-6v12z"/><path d="M3 18l8-6-8-6v12z"/></svg>',
   };
 
   /* ---- API helpers ---- */
@@ -281,9 +356,43 @@
   const getTitle      = id => api('/anime/releases/' + id);
   const posterUrl     = t  => { const p = t.poster && (t.poster.src || (t.poster.optimized && t.poster.optimized.src)); return p ? (/^https?:/.test(p) ? p : SITE + p) : ''; };
 
-  /* ---- routing between home / detail ---- */
-  function showHome(){ el.detail.classList.add('hidden'); el.home.classList.remove('hidden'); teardownPlayer(); el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank'; }
-  function showDetail(){ el.home.classList.add('hidden'); el.detail.classList.remove('hidden'); }
+  /* ---- routing between home / detail ----
+     keepPlayer=true keeps the AniLibria/Kodik player alive (e.g. it moved into
+     Picture-in-Picture) so navigating back to the catalog does NOT stop playback. */
+  function showHome(keepPlayer){
+    el.detail.classList.add('hidden');
+    el.home.classList.remove('hidden');
+    if(!keepPlayer){
+      teardownPlayer();
+      el.embedWrap.classList.add('hidden');
+      el.embedFrame.src = 'about:blank';
+    }
+    updateMiniReturn();
+    window.scrollTo({ top:0, behavior:'smooth' });
+  }
+  function showDetail(){
+    el.home.classList.add('hidden');
+    el.detail.classList.remove('hidden');
+    updateMiniReturn();
+    window.scrollTo({ top:0, behavior:'smooth' });
+  }
+
+  /* ---- floating "return to player" mini-bar (shown while playing in background) ---- */
+  function isPlayerLive(){
+    const libriaLive = current.mode === 'libria' && current.ep != null && !el.playerWrap.classList.contains('hidden');
+    const kodikLive  = current.mode === 'kodik' && !!current.kodikLink && !el.embedWrap.classList.contains('hidden');
+    return libriaLive || kodikLive;
+  }
+  function updateMiniReturn(){
+    const onHome = !el.home.classList.contains('hidden');
+    if(onHome && isPlayerLive() && current.title){
+      el.mrPoster.src = posterUrl(current.title);
+      el.mrTitle.textContent = titleName(current.title);
+      el.miniReturn.classList.add('show');
+    } else {
+      el.miniReturn.classList.remove('show');
+    }
+  }
 
   /* ---- render results grid ---- */
   function renderResults(list){
@@ -388,7 +497,36 @@
     v.addEventListener('loadedmetadata', onReady);
   }
 
-  function teardownPlayer(){ if(hls){ hls.destroy(); hls=null; } if(typeof stopAmbient === 'function') stopAmbient(false); }
+  function teardownPlayer(){
+    if(hls){ hls.destroy(); hls=null; }
+    if(document.pictureInPictureElement){ document.exitPictureInPicture().catch(()=>{}); }
+    if(typeof stopAmbient === 'function') stopAmbient(false);
+  }
+
+  /* ---- Picture-in-Picture ---- */
+  async function enterPip(){
+    const v = el.video;
+    if(current.mode !== 'libria' || el.playerWrap.classList.contains('hidden')) return false;
+    if(!document.pictureInPictureEnabled || v.disablePictureInPicture) return false;
+    if(document.pictureInPictureElement) return true;
+    try{ if(v.readyState >= 1){ await v.requestPictureInPicture(); return true; } }catch(e){}
+    return false;
+  }
+  async function togglePip(){
+    try{
+      if(document.pictureInPictureElement){ await document.exitPictureInPicture(); }
+      else { const ok = await enterPip(); if(!ok) toast('Картинка в картинке недоступна для этого источника'); }
+    }catch(e){ toast('Не удалось включить «картинку в картинке»'); }
+  }
+
+  /* ---- tiny toast helper ---- */
+  let toastTimer = 0;
+  function toast(msg){
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.toast.classList.remove('show'), 2600);
+  }
 
   /* ---- play a specific episode ---- */
   function playEpisode(idx, quality, seekTo){
@@ -613,6 +751,32 @@
   el.muteBtn.innerHTML = ICON.vol;
   el.fsBtn.innerHTML   = ICON.fs;
   el.ambientBtn.innerHTML = ICON.ambient;
+  el.pipBtn.innerHTML = ICON.pip;
+  el.rewBtn.innerHTML = ICON.rew;
+  el.fwdBtn.innerHTML = ICON.fwd;
+
+  /* ---- restore saved volume ---- */
+  (function restoreVolume(){
+    const sv = parseFloat(localStorage.getItem('aniwired:vol'));
+    if(!isNaN(sv)){ v.volume = sv; el.volume.value = sv; }
+    if(localStorage.getItem('aniwired:muted') === '1'){ v.muted = true; }
+  })();
+
+  /* ---- skip buttons ---- */
+  el.rewBtn.onclick = () => { v.currentTime = Math.max(0, v.currentTime - 10); };
+  el.fwdBtn.onclick = () => { v.currentTime = Math.min(v.duration || Infinity, v.currentTime + 10); };
+
+  /* ---- Picture-in-Picture button + state sync ---- */
+  el.pipBtn.onclick = togglePip;
+  v.addEventListener('enterpictureinpicture', () => { el.pipBtn.classList.add('active'); });
+  v.addEventListener('leavepictureinpicture', () => {
+    el.pipBtn.classList.remove('active');
+    // If the user closed PiP while browsing the catalog, the background player is
+    // no longer visible — pause it and hide the "return" bar to avoid ghost audio.
+    if(!el.detail.classList.contains('hidden')) return;
+    v.pause();
+    updateMiniReturn();
+  });
 
   /* ---- Ambient Light: sample the current video frame into a tiny hidden canvas,
      then scale it up + blur it via CSS as a soft glow behind the player.
@@ -675,12 +839,17 @@
   };
   el.timeline.oninput = () => { if(v.duration) v.currentTime = (el.timeline.value/100) * v.duration; };
 
-  el.volume.oninput = () => { v.volume = el.volume.value; v.muted = v.volume === 0; updateMute(); };
-  el.muteBtn.onclick = () => { v.muted = !v.muted; updateMute(); };
+  el.volume.oninput = () => { v.volume = el.volume.value; v.muted = v.volume === 0; updateMute(); persistVolume(); };
+  el.muteBtn.onclick = () => { v.muted = !v.muted; updateMute(); persistVolume(); };
   function updateMute(){
     el.muteBtn.innerHTML = (v.muted || v.volume===0) ? ICON.mute : ICON.vol;
     if(!v.muted && v.volume>0) el.volume.value = v.volume;
   }
+  function persistVolume(){
+    localStorage.setItem('aniwired:vol', String(v.volume));
+    localStorage.setItem('aniwired:muted', v.muted ? '1' : '0');
+  }
+  updateMute();
 
   // Subtitles toggle (enabled only if the stream exposes text tracks)
   el.subBtn.onclick = () => {
@@ -705,6 +874,9 @@
     if(e.code==='ArrowLeft')  v.currentTime -= 5;
     if(e.code==='KeyF') el.fsBtn.click();
     if(e.code==='KeyM') el.muteBtn.click();
+    if(e.code==='KeyP'){ e.preventDefault(); togglePip(); }
+    if(e.code==='KeyJ') v.currentTime = Math.max(0, v.currentTime - 10);
+    if(e.code==='KeyL') v.currentTime += 10;
   });
 
   /* ============ localStorage persistence ============ */
@@ -745,11 +917,21 @@
   function debounce(fn,ms){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a),ms); }; }
 
   /* ============ search wiring ============ */
+  // Instantly (within the user gesture) move a playing AniLibria video into PiP the
+  // moment the user starts searching, so it keeps playing instead of being closed.
+  el.searchInput.addEventListener('input', () => {
+    if(!el.detail.classList.contains('hidden') && current.mode === 'libria' && !el.video.paused){
+      enterPip();
+    }
+  });
+
   el.searchInput.addEventListener('input', debounce(async e => {
     const q = e.target.value.trim();
-    if(!q){ if(!el.detail.classList.contains('hidden')) showHome(); loadHome(); return; }
+    // Keep the player alive if something is currently playing (PiP / background audio).
+    const keepPlaying = isPlayerLive() && (!el.video.paused || current.mode === 'kodik' || document.pictureInPictureElement);
+    if(!q){ if(!el.detail.classList.contains('hidden')) showHome(keepPlaying); loadHome(); return; }
     // If we're on the detail/player view, jump back to the results grid so search is visible.
-    if(!el.detail.classList.contains('hidden')) showHome();
+    if(!el.detail.classList.contains('hidden')) showHome(keepPlaying);
     el.resultsTitle.textContent = 'Результаты: "' + q + '"';
     el.results.innerHTML = '<div class="spinner"></div>';
     try{
@@ -763,7 +945,32 @@
     catch(err){ el.results.innerHTML = '<p class="hint">Ошибка поиска: '+err.message+'</p>'; }
   }, 350));
 
-  el.backBtn.onclick = showHome;
+  el.backBtn.onclick = () => showHome();
+
+  /* ---- logo -> home (clears search, keeps a playing video alive in background) ---- */
+  function goHome(){
+    el.searchInput.value = '';
+    const keepPlaying = isPlayerLive() && (!el.video.paused || current.mode === 'kodik' || document.pictureInPictureElement);
+    showHome(keepPlaying);
+    el.resultsTitle.textContent = 'Новые серии';
+    loadHome();
+  }
+  el.logo.onclick = goHome;
+  el.logo.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); goHome(); } });
+
+  /* ---- mini-return bar: jump back to the player ---- */
+  el.miniReturn.onclick = () => { showDetail(); el.miniReturn.classList.remove('show'); };
+  el.mrClose.onclick = e => {
+    e.stopPropagation();
+    if(document.pictureInPictureElement){ document.exitPictureInPicture().catch(()=>{}); }
+    teardownPlayer();
+    el.video.pause(); el.video.removeAttribute('src'); el.video.load();
+    el.embedFrame.src = 'about:blank'; current.kodikLink = undefined;
+    el.playerWrap.classList.add('hidden'); el.embedWrap.classList.add('hidden');
+    current.ep = null;
+    el.miniReturn.classList.remove('show');
+  };
+
   $$('.src-tab', el.sourceTabs).forEach(b => b.onclick = () => setMode(b.dataset.src));
 
   /* ============ init ============ */
