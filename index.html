@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,7 +13,7 @@
     --panel:rgba(28,32,52,.6); --panel-2:rgba(40,45,70,.5); --border:rgba(255,255,255,.10);
     --text:#f3f4fb; --muted:#9aa0bd; --accent:#a06bff; --accent-2:#5b8cff; --pink:#ff6bc1;
     --accent-soft:rgba(160,107,255,.18);
-    --mint:#5eead4; --radius:22px; --radius-sm:14px;
+    --mint:#5eead4; --radius:22px; --radius-sm:14px; --nav-h:84px;
     --shadow:0 20px 60px rgba(0,0,0,.55);
     --shadow-glass:0 8px 32px rgba(0,0,0,.4), inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-brd);
     --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -42,7 +42,7 @@
     border:1px solid var(--glass-brd);box-shadow:var(--shadow-glass)}
 
   /* ===== Header / floating nav ===== */
-  header{position:sticky;top:0;z-index:40;padding:14px 16px 0}
+  header{position:fixed;left:0;right:0;top:0;z-index:40;padding:16px 16px 0}
   .bar{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:16px;
     padding:10px 14px;border-radius:999px;
     background:var(--glass);backdrop-filter:blur(22px) saturate(180%);
@@ -71,17 +71,26 @@
   .search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);
     width:18px;height:18px;color:var(--muted);pointer-events:none}
 
-  main{max-width:1240px;margin:0 auto;padding:22px 18px 96px}
+  main{max-width:1240px;margin:0 auto;padding:var(--nav-h) 18px 110px}
   .hint{color:var(--muted);font-size:14px}
   .section-title{font-size:13px;text-transform:uppercase;letter-spacing:1.4px;
     color:var(--muted);margin:8px 0 14px;font-weight:700}
-  .row-head{display:flex;align-items:baseline;gap:12px;margin:26px 2px 14px}
+  .row-head{display:flex;align-items:center;gap:12px;margin:26px 2px 14px}
   .row-head h2{font-size:21px;font-weight:800;letter-spacing:-.3px}
   .row-head .row-sub{font-size:13px;color:var(--muted)}
+  .rail-arrows{margin-left:auto;display:flex;gap:8px}
+  .rail-arrow{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;cursor:pointer;
+    font-size:20px;color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--glass-brd);
+    transition:.15s;line-height:1}
+  .rail-arrow:hover{background:rgba(255,255,255,.18);transform:scale(1.08)}
+  .row-head.is-grid .rail-arrows{display:none}
 
   /* ===== HERO (featured carousel) ===== */
-  .hero{position:relative;height:clamp(320px,46vw,460px);border-radius:28px;overflow:hidden;
-    margin:6px 0 8px;box-shadow:var(--shadow);isolation:isolate}
+  /* Full-bleed cinematic hero: spans the viewport width and tucks under the
+     transparent floating nav (Strelix-style). */
+  .hero{position:relative;height:clamp(440px,64vh,640px);overflow:hidden;isolation:isolate;
+    width:100vw;margin-left:calc(50% - 50vw);margin-top:calc(-1 * var(--nav-h));margin-bottom:20px;
+    border-radius:0}
   .hero-bg{position:absolute;inset:0;background-size:cover;background-position:center 22%;
     transform:scale(1.08);filter:saturate(1.15);opacity:0;transition:opacity .7s ease}
   .hero-bg.show{opacity:1}
@@ -89,8 +98,9 @@
   .card .thumb.swapping{opacity:.35}
   .hero-scrim{position:absolute;inset:0;
     background:
-      linear-gradient(90deg, rgba(7,8,18,.92) 0%, rgba(7,8,18,.72) 38%, rgba(7,8,18,.18) 70%, rgba(7,8,18,.55) 100%),
-      linear-gradient(0deg, rgba(7,8,18,.95) 0%, transparent 45%)}
+      linear-gradient(90deg, rgba(7,8,18,.94) 0%, rgba(7,8,18,.72) 38%, rgba(7,8,18,.14) 70%, rgba(7,8,18,.5) 100%),
+      linear-gradient(0deg, rgba(7,8,18,.96) 0%, transparent 42%),
+      linear-gradient(180deg, rgba(7,8,18,.6) 0%, transparent 24%)}
   .hero-inner{position:absolute;left:0;bottom:0;z-index:2;padding:clamp(20px,3vw,40px);
     max-width:640px;display:flex;flex-direction:column;gap:12px}
   .hero-badge{align-self:flex-start;font-size:11.5px;font-weight:700;letter-spacing:1px;
@@ -294,12 +304,13 @@
     .search{max-width:none}
   }
   @media(max-width:720px){
+    :root{--nav-h:68px}
     header{padding:10px 10px 0}
-    .bar{flex-wrap:wrap;gap:10px;padding:10px 12px;border-radius:22px}
-    .logo{font-size:17px}
-    .search{order:3;flex-basis:100%;margin-left:0}
-    main{padding:16px 12px 100px}
-    .hero{height:clamp(300px,70vw,400px);border-radius:22px}
+    .bar{flex-wrap:nowrap;gap:8px;padding:8px 10px;border-radius:999px}
+    .logo{font-size:16px}
+    .search{order:0;flex-basis:auto;margin-left:8px}
+    main{padding:calc(var(--nav-h) + 4px) 12px 100px}
+    .hero{height:clamp(380px,78vw,520px)}
     .hero-desc{-webkit-line-clamp:2}
     .hero-nav{display:none}
     .row-head h2{font-size:18px}
@@ -329,15 +340,15 @@
 <body>
   <header>
     <div class="bar">
-      <div class="logo" id="logoBtn" title="На главную" role="button" tabindex="0"><b>Israel</b></div>
+      <div class="logo" id="logoBtn" title="Home" role="button" tabindex="0"><b>Israel</b></div>
       <nav class="nav">
-        <a class="nav-link active" id="navHome">Главная</a>
-        <a class="nav-link" id="navNew">Новинки</a>
-        <a class="nav-link" id="navHd" title="HD-обложки баннера (TMDB)">HD</a>
+        <a class="nav-link active" id="navHome">Home</a>
+        <a class="nav-link" id="navNew">New</a>
+        <a class="nav-link" id="navHd" title="HD banner artwork (TMDB)">HD</a>
       </nav>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input id="searchInput" type="search" placeholder="Поиск аниме по названию…" autocomplete="off" />
+        <input id="searchInput" type="search" placeholder="Search anime by title…" autocomplete="off" />
       </div>
     </div>
   </header>
@@ -347,10 +358,10 @@
     <section id="home">
       <!-- TMDB HD-artwork key entry (hidden until needed) -->
       <div class="tmdb-bar hidden" id="tmdbBar">
-        <p>🎬 HD-обложки баннера через TMDB. Вставьте бесплатный API-ключ (v3) — сохранится локально. <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Где взять?</a></p>
+        <p>🎬 HD banner artwork via TMDB. Paste a free API key (v3) — it is saved locally. <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Where to get it?</a></p>
         <input id="tmdbInput" type="text" placeholder="TMDB API key (v3)" autocomplete="off" spellcheck="false" />
-        <button class="btn btn-primary" id="tmdbSave">Сохранить</button>
-        <button class="mr-close" id="tmdbDismiss" title="Скрыть">✕</button>
+        <button class="btn btn-primary" id="tmdbSave">Save</button>
+        <button class="mr-close" id="tmdbDismiss" title="Hide">✕</button>
       </div>
       <!-- Featured hero carousel -->
       <section class="hero hidden" id="hero">
@@ -358,33 +369,35 @@
         <div class="hero-bg" id="heroBgB"></div>
         <div class="hero-scrim"></div>
         <div class="hero-inner">
-          <span class="hero-badge">✨ Рекомендуем</span>
+          <span class="hero-badge">✨ Featured</span>
           <h1 class="hero-title" id="heroTitle"></h1>
           <p class="hero-meta" id="heroMeta"></p>
           <p class="hero-desc" id="heroDesc"></p>
           <div class="hero-actions">
-            <button class="btn btn-primary" id="heroPlay">▶ Смотреть</button>
-            <button class="btn btn-glass" id="heroDetails">Подробнее</button>
+            <button class="btn btn-primary" id="heroPlay">▶ Watch</button>
+            <button class="btn btn-glass" id="heroDetails">Details</button>
           </div>
         </div>
-        <button class="hero-nav prev" id="heroPrev" aria-label="Назад">‹</button>
-        <button class="hero-nav next" id="heroNext" aria-label="Вперёд">›</button>
+        <button class="hero-nav prev" id="heroPrev" aria-label="Previous">‹</button>
+        <button class="hero-nav next" id="heroNext" aria-label="Next">›</button>
         <div class="hero-dots" id="heroDots"></div>
       </section>
 
       <div id="resumeSlot"></div>
-      <div class="row-head"><h2 id="resultsTitle">Новые серии</h2><span class="row-sub" id="resultsSub"></span></div>
+      <div class="row-head" id="rowHead"><h2 id="resultsTitle">New episodes</h2><span class="row-sub" id="resultsSub"></span>
+        <div class="rail-arrows"><button class="rail-arrow" id="railPrev" aria-label="Previous">‹</button><button class="rail-arrow" id="railNext" aria-label="Next">›</button></div>
+      </div>
       <div id="results" class="rail"></div>
       <div id="homeState" class="state hidden"></div>
     </section>
 
     <!-- DETAIL -->
     <section id="detail" class="hidden">
-      <div class="back" id="backBtn">← Назад</div>
+      <div class="back" id="backBtn">← Back</div>
 
       <div class="source-tabs" id="sourceTabs">
-        <button class="src-tab active" data-src="libria">AniLibria · RU озвучка</button>
-        <button class="src-tab" data-src="kodik">Kodik · все озвучки + субтитры</button>
+        <button class="src-tab active" data-src="libria">AniLibria · RU dub</button>
+        <button class="src-tab" data-src="kodik">Kodik · all dubs + subtitles</button>
       </div>
 
       <div class="embed-wrap hidden" id="embedWrap">
@@ -399,19 +412,19 @@
         <div class="pl-controls">
           <input id="timeline" class="timeline" type="range" min="0" max="100" value="0" step="0.1" />
           <div class="pl-btns">
-            <button class="iconbtn" id="rewBtn" title="−10 сек"></button>
+            <button class="iconbtn" id="rewBtn" title="−10s"></button>
             <button class="iconbtn" id="playBtn" title="Play/Pause"></button>
-            <button class="iconbtn" id="fwdBtn" title="+10 сек"></button>
+            <button class="iconbtn" id="fwdBtn" title="+10s"></button>
             <div class="vol">
               <button class="iconbtn" id="muteBtn" title="Mute"></button>
               <input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
             </div>
             <span class="time" id="timeLabel">0:00 / 0:00</span>
             <span class="spacer"></span>
-            <button class="iconbtn" id="ambientBtn" title="Фоновое свечение (Ambient Light)"></button>
-            <button class="iconbtn" id="subBtn" title="Субтитры">CC</button>
-            <select id="qualitySel" class="pl-select" title="Качество"></select>
-            <button class="iconbtn" id="pipBtn" title="Картинка в картинке (P)"></button>
+            <button class="iconbtn" id="ambientBtn" title="Ambient Light"></button>
+            <button class="iconbtn" id="subBtn" title="Subtitles">CC</button>
+            <select id="qualitySel" class="pl-select" title="Quality"></select>
+            <button class="iconbtn" id="pipBtn" title="Picture-in-Picture (P)"></button>
             <button class="iconbtn" id="fsBtn" title="Fullscreen"></button>
           </div>
         </div>
@@ -428,12 +441,12 @@
 
           <div class="controls-row">
             <div class="field">
-              <label>Озвучка / Команда</label>
+              <label>Dub / Team</label>
               <select id="teamSel" class="ui"></select>
             </div>
           </div>
 
-          <label class="section-title" style="display:block">Эпизоды</label>
+          <label class="section-title" style="display:block">Episodes</label>
           <div id="episodes" class="episodes"></div>
         </div>
       </div>
@@ -446,10 +459,10 @@
     <img id="mrPoster" alt="" />
     <div class="mr-info">
       <h5 id="mrTitle"></h5>
-      <p id="mrSub">▶ продолжает играть</p>
+      <p id="mrSub">▶ still playing</p>
     </div>
-    <span class="mr-go">Вернуться</span>
-    <button class="mr-close" id="mrClose" title="Закрыть и остановить">✕</button>
+    <span class="mr-go">Return</span>
+    <button class="mr-close" id="mrClose" title="Close and stop">✕</button>
   </div>
 
   <div class="toast" id="toast"></div>
@@ -462,11 +475,12 @@
   const STORE = 'aniwired:last';
 
   /* =====================================================================
-     ВСТРОЕННЫЙ TMDB-КЛЮЧ (опционально)
-     Вставь сюда свой постоянный TMDB API-ключ (v3) между кавычками ниже.
-     Тогда HD-обложки баннера будут работать сразу у всех без ручного ввода.
-     Пример: const TMDB_KEY = 'a1b2c3d4e5f6...';
-     (Ключ v3 — read-only и всё равно виден в запросах, так что встраивать его на клиенте — стандартная практика.)
+     EMBEDDED TMDB KEY (optional)
+     Paste your permanent TMDB API key (v3) between the quotes below.
+     Then HD banner artwork works for everyone with no manual entry.
+     Example: const TMDB_KEY = 'a1b2c3d4e5f6...';
+     (A v3 key is read-only and is exposed in requests anyway, so embedding it
+     on the client is standard practice.)
      ===================================================================== */
   const TMDB_KEY = '7b19d2d4ace89674cb0238eeff2f89b2';
 
@@ -488,6 +502,7 @@
     miniReturn:$('#miniReturn'), mrPoster:$('#mrPoster'), mrTitle:$('#mrTitle'),
     mrClose:$('#mrClose'), toast:$('#toast'),
     resultsSub:$('#resultsSub'), navHome:$('#navHome'), navNew:$('#navNew'),
+    rowHead:$('#rowHead'), railPrev:$('#railPrev'), railNext:$('#railNext'),
     hero:$('#hero'), heroBg:$('#heroBg'), heroBgB:$('#heroBgB'), heroTitle:$('#heroTitle'), heroMeta:$('#heroMeta'),
     heroDesc:$('#heroDesc'), heroPlay:$('#heroPlay'), heroDetails:$('#heroDetails'),
     heroPrev:$('#heroPrev'), heroNext:$('#heroNext'), heroDots:$('#heroDots'),
@@ -631,6 +646,8 @@
     // 1) TMDB landscape backdrop (HD), with season-stripped base-series fallback
     const tm = await tmdbBackdrop(nameVariants(t));
     if(tm){ heroBgCache[key] = tm; return tm; }
+    // 1b) AniList wide banner already attached to the item (top-of-year list)
+    if(t._banner){ heroBgCache[key] = t._banner; return t._banner; }
     // 2) AniList wide banner / large cover
     try{
       const r = await fetch('https://graphql.anilist.co', {
@@ -724,7 +741,7 @@
   /* ---- render results grid ---- */
   function renderResults(list){
     el.results.innerHTML = '';
-    if(!list.length){ el.results.innerHTML = '<p class="hint">Ничего не найдено.</p>'; return; }
+    if(!list.length){ el.results.innerHTML = '<p class="hint">Nothing found.</p>'; return; }
     const frag = document.createDocumentFragment();
     for(const t of list){
       const c = document.createElement('div');
@@ -746,7 +763,7 @@
     showDetail();
     el.playerWrap.classList.add('hidden');
     el.detailState.classList.remove('hidden');
-    el.detailState.innerHTML = '<div class="spinner"></div>Загрузка…';
+    el.detailState.innerHTML = '<div class="spinner"></div>Loading…';
     try{
       const t = await getTitle(id);
       current.title = t;
@@ -772,7 +789,7 @@
 
       renderEpisodes(resume);
     }catch(e){
-      el.detailState.innerHTML = 'Ошибка загрузки: ' + e.message;
+      el.detailState.innerHTML = 'Loading error: ' + e.message;
     }
   }
 
@@ -783,11 +800,11 @@
   /* ---- episodes list ---- */
   function renderEpisodes(resume){
     el.episodes.innerHTML = '';
-    if(!current.episodes.length){ el.episodes.innerHTML='<p class="hint">Серии недоступны.</p>'; return; }
+    if(!current.episodes.length){ el.episodes.innerHTML='<p class="hint">Episodes unavailable.</p>'; return; }
     current.episodes.forEach((ep, i) => {
       const b = document.createElement('button');
       b.className='ep'; b.dataset.idx = i;
-      b.textContent = 'Серия ' + (ep.ordinal != null ? ep.ordinal : (i+1));
+      b.textContent = 'Episode ' + (ep.ordinal != null ? ep.ordinal : (i+1));
       b.onclick = () => selectEpisode(i);
       el.episodes.appendChild(b);
     });
@@ -815,7 +832,7 @@
       hls.attachMedia(v);
     } else {
       el.detailState.classList.remove('hidden');
-      el.detailState.textContent = 'HLS не поддерживается этим браузером.';
+      el.detailState.textContent = 'HLS is not supported in this browser.';
       return;
     }
     const onReady = () => {
@@ -844,8 +861,8 @@
   async function togglePip(){
     try{
       if(document.pictureInPictureElement){ await document.exitPictureInPicture(); }
-      else { const ok = await enterPip(); if(!ok) toast('Картинка в картинке недоступна для этого источника'); }
-    }catch(e){ toast('Не удалось включить «картинку в картинке»'); }
+      else { const ok = await enterPip(); if(!ok) toast('Picture-in-Picture is not available for this source'); }
+    }catch(e){ toast('Couldn\'t enable Picture-in-Picture'); }
   }
 
   /* ---- tiny toast helper ---- */
@@ -866,7 +883,7 @@
     el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
     $$('.src-tab', el.sourceTabs).forEach(b => b.classList.toggle('active', b.dataset.src === 'libria'));
     const qs = qualitiesOf(ep);
-    if(!qs.length){ alert('Для этой серии нет видеопотока.'); return; }
+    if(!qs.length){ alert('No video stream for this episode.'); return; }
     current.quality = (quality && qs.some(q=>q.key===quality)) ? quality : qs[0].key;
 
     // quality selector
@@ -944,10 +961,10 @@
     el.embedWrap.classList.add('hidden');
     el.detailState.classList.remove('hidden');
     el.detailState.innerHTML =
-      '<p style="margin-bottom:12px">Для источника Kodik нужен бесплатный API-токен. ' +
-      'Вставь его один раз — он сохранится локально (localStorage).</p>' +
+      '<p style="margin-bottom:12px">The Kodik source needs a free API token. ' +
+      'Paste it once — it will be saved locally (localStorage).</p>' +
       '<input id="kodikTokenInput" class="ui" style="min-width:280px" placeholder="Kodik API token" /> ' +
-      '<button id="kodikTokenSave" class="src-tab active">Сохранить</button>';
+      '<button id="kodikTokenSave" class="src-tab active">Save</button>';
     $('#kodikTokenSave').onclick = () => {
       const val = $('#kodikTokenInput').value.trim();
       if(!val) return;
@@ -984,7 +1001,7 @@
     if(!token){ askKodikToken(); return; }
     el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
     el.detailState.classList.remove('hidden');
-    el.detailState.innerHTML = '<div class="spinner"></div>Ищу в Kodik…';
+    el.detailState.innerHTML = '<div class="spinner"></div>Searching Kodik…';
 
     // Path 1 (no backend): embed Kodik by external ID through an IFRAME.
     // Iframes are NOT subject to CORS, so this works from a plain static .html file.
@@ -1003,14 +1020,14 @@
     try{
       const results = await searchKodik(token, current.title);
       const hit = pickKodik(results);
-      if(!hit || !hit.link){ el.detailState.innerHTML = 'В Kodik ничего не найдено для этого тайтла.'; return; }
+      if(!hit || !hit.link){ el.detailState.innerHTML = 'Nothing found in Kodik for this title.'; return; }
       current.kodikLink = (hit.link.indexOf('//') === 0 ? 'https:' : '') + hit.link;
       el.detailState.classList.add('hidden');
       el.embedWrap.classList.remove('hidden');
       el.embedFrame.src = current.kodikLink;
     }catch(e){
-      el.detailState.innerHTML = 'Не удалось получить плеер Kodik по названию: ' + e.message +
-        '<br><span class="hint">Iframe-встраивание по ID (без бэкенда) сработало бы, но внешний ID для этого тайтла не нашёлся. Поиск по названию упирается в CORS — нужен публичный CORS-proxy.</span>';
+      el.detailState.innerHTML = 'Couldn\'t load the Kodik player by title: ' + e.message +
+        '<br><span class="hint">Embedding by ID via iframe (no backend) would work, but no external ID was found for this title. Title search hits CORS — a public CORS proxy is needed.</span>';
     }
   }
 
@@ -1067,8 +1084,8 @@
     el.desc.textContent = (t.description || '').replace(/\n{3,}/g,'\n\n');
     el.chips.innerHTML = '';
     (t.genres || []).slice(0,6).forEach(g => addChip(typeof g === 'string' ? g : g.name));
-    el.teamSel.innerHTML = '<option>Kodik — переключение внутри плеера</option>';
-    el.episodes.innerHTML = '<p class="hint">Серии, озвучки и субтитры переключаются прямо в плеере Kodik ниже.</p>';
+    el.teamSel.innerHTML = '<option>Kodik — switch inside the player</option>';
+    el.episodes.innerHTML = '<p class="hint">Episodes, dubs and subtitles are switched right inside the Kodik player below.</p>';
 
     setKodikOnlyTabs(true);
     setMode('kodik');
@@ -1143,13 +1160,13 @@
     ambient.enabled = on;
     localStorage.setItem('aniwired:ambient', on ? '1' : '0');
     el.ambientBtn.classList.toggle('active', on);
-    el.ambientBtn.title = on ? 'Фоновое свечение: вкл' : 'Фоновое свечение: выкл';
+    el.ambientBtn.title = on ? 'Ambient Light: on' : 'Ambient Light: off';
     on ? startAmbient() : stopAmbient(false);
   }
   el.ambientBtn.onclick = () => setAmbient(!ambient.enabled);
   document.addEventListener('visibilitychange', () => { document.hidden ? stopAmbient(true) : startAmbient(); });
   el.ambientBtn.classList.toggle('active', ambient.enabled);
-  el.ambientBtn.title = ambient.enabled ? 'Фо  овое свечение: вкл' : 'Фоновое свечение: выкл';
+  el.ambientBtn.title = ambient.enabled ? 'Ambient Light: on' : 'Ambient Light: off';
 
   function togglePlay(){ v.paused ? v.play() : v.pause(); }
   el.playBtn.onclick = togglePlay;
@@ -1183,7 +1200,7 @@
   // Subtitles toggle (enabled only if the stream exposes text tracks)
   el.subBtn.onclick = () => {
     const tracks = v.textTracks;
-    if(!tracks || !tracks.length){ el.subBtn.title='Субтитры недоступны'; el.subBtn.style.opacity=.4; return; }
+    if(!tracks || !tracks.length){ el.subBtn.title='Subtitles unavailable'; el.subBtn.style.opacity=.4; return; }
     const on = tracks[0].mode !== 'showing';
     for(const tr of tracks) tr.mode = on ? 'showing' : 'hidden';
     el.subBtn.classList.toggle('active', on);
@@ -1230,16 +1247,16 @@
     if(!raw){ el.resumeSlot.innerHTML=''; return; }
     let d; try{ d = JSON.parse(raw); }catch{ return; }
     el.resumeSlot.innerHTML =
-      '<h2 class="section-title">Продолжить просмотр</h2>' +
+      '<h2 class="section-title">Continue watching</h2>' +
       '<div class="resume"><img src="'+d.poster+'" alt=""/>' +
       '<div class="r-info"><h4>'+escapeHtml(d.name)+'</h4>' +
-      '<p>Серия '+d.epLabel+' • '+fmt(d.time)+'</p></div>' +
-      '<span class="r-go">▶ Продолжить</span></div>';
+      '<p>Episode '+d.epLabel+' • '+fmt(d.time)+'</p></div>' +
+      '<span class="r-go">▶ Resume</span></div>';
     $('.resume', el.resumeSlot).onclick = () => openTitle(d.id, { idx:d.idx, quality:d.quality, time:d.time });
   }
 
   /* ============ helpers ============ */
-  function titleName(t){ return (t.name && (t.name.main || t.name.english)) || t.alias || 'Без названия'; }
+  function titleName(t){ return (t.name && (t.name.main || t.name.english)) || t.alias || 'Untitled'; }
   function releaseYear(t){ return (t.year && typeof t.year === 'object') ? t.year.value : t.year; }
   function fmt(s){ s=Math.floor(s||0); const m=Math.floor(s/60), sec=s%60; return m+':' + String(sec).padStart(2,'0'); }
   function escapeHtml(s){ return String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -1263,7 +1280,8 @@
     if(!el.detail.classList.contains('hidden')) showHome(keepPlaying);
     hideHero();
     el.results.className = 'grid';
-    el.resultsTitle.textContent = 'Результаты: "' + q + '"';
+    el.rowHead.classList.add('is-grid');
+    el.resultsTitle.textContent = 'Results: "' + q + '"';
     el.resultsSub.textContent = '';
     el.results.innerHTML = '<div class="spinner"></div>';
     try{
@@ -1283,14 +1301,14 @@
       const extras = ext.filter(t => ![t.name && t.name.main, t.name && t.name.english, t.name && t.name.romaji]
         .some(n => { const k = norm(n); return k && libriaKeys.has(k); }));
       const merged = [...libria, ...extras];
-      if(!merged.length){ el.results.innerHTML = '<p class="hint">Ничего не найдено.</p>'; return; }
-      el.resultsTitle.textContent = 'Результаты: "' + q + '"';
+      if(!merged.length){ el.results.innerHTML = '<p class="hint">Nothing found.</p>'; return; }
+      el.resultsTitle.textContent = 'Results: "' + q + '"';
       el.resultsSub.textContent = (libria.length && extras.length)
-        ? 'AniLibria + расширенный каталог (Kodik)'
-        : (extras.length ? 'Расширенный каталог (Kodik)' : 'AniLibria');
+        ? 'AniLibria + extended catalog (Kodik)'
+        : (extras.length ? 'Extended catalog (Kodik)' : 'AniLibria');
       renderResults(merged);
     }
-    catch(err){ el.results.innerHTML = '<p class="hint">Ошибка поиска: '+err.message+'</p>'; }
+    catch(err){ el.results.innerHTML = '<p class="hint">Search error: '+err.message+'</p>'; }
   }, 350));
 
   el.backBtn.onclick = () => showHome();
@@ -1300,13 +1318,18 @@
     el.searchInput.value = '';
     const keepPlaying = isPlayerLive() && (!el.video.paused || current.mode === 'kodik' || document.pictureInPictureElement);
     showHome(keepPlaying);
-    el.resultsTitle.textContent = 'Новые серии';
+    el.resultsTitle.textContent = 'New episodes';
     loadHome();
   }
   el.logo.onclick = goHome;
   el.logo.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); goHome(); } });
   el.navHome.onclick = goHome;
   el.navNew.onclick = goHome;
+
+  /* ---- horizontal rail arrows ---- */
+  const scrollRail = dir => el.results.scrollBy({ left: dir * Math.max(320, el.results.clientWidth * 0.85), behavior:'smooth' });
+  el.railPrev.onclick = () => scrollRail(-1);
+  el.railNext.onclick = () => scrollRail(1);
 
   /* ---- TMDB HD-artwork key management ---- */
   function openTmdbBar(){
@@ -1328,7 +1351,7 @@
     el.navHd.classList.toggle('on', !!getTmdbKey());
     el.tmdbBar.classList.add('hidden');
     refreshHeroArt();
-    toast(v ? 'TMDB подключён — HD-обложки включены' : 'TMDB-ключ удалён');
+    toast(v ? 'TMDB connected — HD artwork enabled' : 'TMDB key removed');
   };
   el.tmdbInput.addEventListener('keydown', e => { if(e.code === 'Enter') el.tmdbSave.click(); });
   el.tmdbDismiss.onclick = () => { localStorage.setItem('tmdb:dismissed', '1'); el.tmdbBar.classList.add('hidden'); };
@@ -1350,18 +1373,53 @@
 
   $$('.src-tab', el.sourceTabs).forEach(b => b.onclick = () => setMode(b.dataset.src));
 
+  /* ---- "Best of the last 12 months" for the hero (popular -> real, pretty art) ----
+     Pulled from the AniList catalog (sorted by popularity, released in the last year)
+     so the banner shows recognisable titles with proper posters/banners instead of
+     AniLibria's AI placeholder art for unreleased shows. Opened via Kodik. */
+  async function topTitles(){
+    const d = new Date(); d.setMonth(d.getMonth() - 12);
+    const since = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+    try{
+      const r = await fetch('https://graphql.anilist.co', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify({
+          query:'query($since:FuzzyDateInt){Page(perPage:10){media(type:ANIME,sort:[POPULARITY_DESC],startDate_greater:$since,isAdult:false){id idMal title{romaji english native} description(asHtml:false) format seasonYear averageScore coverImage{extraLarge large} bannerImage genres}}}',
+          variables:{ since }
+        })
+      });
+      const j = await r.json();
+      const media = (j.data && j.data.Page && j.data.Page.media) || [];
+      return media.map(m => ({
+        _kodik:true,
+        _mal:(m.idMal != null ? m.idMal : null),
+        _banner:(m.bannerImage || null),
+        id:'al-' + m.id,
+        name:{ main:(m.title.romaji || m.title.english || m.title.native), english:m.title.english, romaji:m.title.romaji },
+        poster:{ src:(m.coverImage && (m.coverImage.extraLarge || m.coverImage.large)) || '' },
+        type:{ description:(m.format || '').replace(/_/g,' ') },
+        year:(m.seasonYear || null),
+        description:(m.description || '').replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,''),
+        genres:(m.genres || [])
+      }));
+    }catch(e){ return []; }
+  }
+
   /* ============ init ============ */
   async function loadHome(){
-    el.resultsTitle.textContent = 'Новые серии';
+    el.resultsTitle.textContent = 'New episodes';
     el.resultsSub.textContent = '';
     el.results.className = 'rail';
+    el.rowHead.classList.remove('is-grid');
     el.results.innerHTML = '<div class="spinner"></div>';
     try{
-      const list = await updatesTitles();
-      buildHero(list);
+      // Hero = best of the last year (pretty art); rail = AniLibria new episodes.
+      const [list, top] = await Promise.all([ updatesTitles(), topTitles().catch(() => []) ]);
+      buildHero(top.length ? top : list);
       renderResults(list);
     }
-    catch(err){ hideHero(); el.results.className = 'grid'; el.results.innerHTML = '<p class="hint">Не удалось з  грузить: '+err.message+'</p>'; }
+    catch(err){ hideHero(); el.results.className = 'grid'; el.results.innerHTML = '<p class="hint">Couldn\'t load: '+err.message+'</p>'; }
   }
   renderResume();
   loadHome();
