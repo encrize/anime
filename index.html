@@ -6,210 +6,335 @@
 <title>AniWired - minimalist anime streaming</title>
 <link rel="preconnect" href="https://api.anilibria.tv" />
 <style>
-  :root{
-    --bg:#0d0e15; --panel:#161925; --panel-2:#1c2031; --border:#262a3d;
-    --text:#e7e9f2; --muted:#878da6; --accent:#a06bff; --accent-soft:rgba(160,107,255,.16);
-    --mint:#5eead4; --radius:14px; --shadow:0 8px 30px rgba(0,0,0,.45);
+:root{
+    --bg:#070812; --bg-2:#0c0e1a;
+    --glass:rgba(28,32,52,.55); --glass-2:rgba(40,45,70,.45);
+    --glass-brd:rgba(255,255,255,.12); --glass-hi:rgba(255,255,255,.22);
+    --panel:rgba(28,32,52,.6); --panel-2:rgba(40,45,70,.5); --border:rgba(255,255,255,.10);
+    --text:#f3f4fb; --muted:#9aa0bd; --accent:#a06bff; --accent-2:#5b8cff; --pink:#ff6bc1;
+    --accent-soft:rgba(160,107,255,.18);
+    --mint:#5eead4; --radius:22px; --radius-sm:14px;
+    --shadow:0 20px 60px rgba(0,0,0,.55);
+    --shadow-glass:0 8px 32px rgba(0,0,0,.4), inset 0 1px 0 var(--glass-hi), inset 0 0 0 1px var(--glass-brd);
     --font:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
-  body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.5;
-    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  body{color:var(--text);font-family:var(--font);line-height:1.5;-webkit-font-smoothing:antialiased;
+    overflow-x:hidden;position:relative;
+    background:var(--bg);
+    background-image:
+      radial-gradient(900px 600px at 12% -8%, rgba(160,107,255,.28), transparent 60%),
+      radial-gradient(800px 600px at 100% 0%, rgba(91,140,255,.22), transparent 55%),
+      radial-gradient(700px 700px at 50% 120%, rgba(255,107,193,.16), transparent 60%),
+      linear-gradient(180deg, var(--bg-2), var(--bg));
+    background-attachment:fixed}
   a{color:inherit;text-decoration:none}
   ::selection{background:var(--accent-soft)}
   ::-webkit-scrollbar{width:10px;height:10px}
-  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:8px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24)}
   ::-webkit-scrollbar-track{background:transparent}
 
-  /* Layout */
-  header{position:sticky;top:0;z-index:30;backdrop-filter:blur(12px);
-    background:rgba(13,14,21,.82);border-bottom:1px solid var(--border)}
-  .bar{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:16px;
-    padding:14px 20px}
-  .logo{font-weight:800;letter-spacing:.5px;font-size:18px;white-space:nowrap;
-    cursor:pointer;user-select:none;display:flex;align-items:center;gap:7px;
-    transition:opacity .15s,transform .15s}
-  .logo:hover{opacity:.85}
+  /* ===== Glass utility ===== */
+  .glass{background:var(--glass);backdrop-filter:blur(22px) saturate(180%);
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    border:1px solid var(--glass-brd);box-shadow:var(--shadow-glass)}
+
+  /* ===== Header / floating nav ===== */
+  header{position:sticky;top:0;z-index:40;padding:14px 16px 0}
+  .bar{max-width:1240px;margin:0 auto;display:flex;align-items:center;gap:16px;
+    padding:10px 14px;border-radius:999px;
+    background:var(--glass);backdrop-filter:blur(22px) saturate(180%);
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    border:1px solid var(--glass-brd);box-shadow:var(--shadow-glass)}
+  .logo{font-weight:800;letter-spacing:.3px;font-size:18px;white-space:nowrap;
+    cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px;padding:6px 10px;
+    border-radius:999px;transition:opacity .15s,transform .15s,background .15s}
+  .logo:hover{background:rgba(255,255,255,.06)}
   .logo:active{transform:scale(.96)}
-  .logo b{color:var(--accent)}
-  .logo .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);
-    box-shadow:0 0 10px var(--accent);flex:0 0 auto}
-  .search{flex:1;position:relative;max-width:560px}
-  .search input{width:100%;background:var(--panel);border:1px solid var(--border);
-    color:var(--text);padding:11px 14px 11px 40px;border-radius:12px;font-size:15px;
-    outline:none;transition:border-color .2s,box-shadow .2s}
-  .search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-  .search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  .logo b{background:linear-gradient(90deg,var(--accent),var(--pink));
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  .nav{display:flex;align-items:center;gap:4px}
+  .nav-link{font-size:14px;font-weight:600;color:var(--muted);padding:8px 14px;border-radius:999px;
+    cursor:pointer;transition:.18s;white-space:nowrap}
+  .nav-link:hover{color:var(--text);background:rgba(255,255,255,.07)}
+  .nav-link.active{color:var(--text);background:rgba(255,255,255,.10);
+    box-shadow:inset 0 0 0 1px var(--glass-brd)}
+  .search{flex:1;position:relative;max-width:420px;margin-left:auto}
+  .search input{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--glass-brd);
+    color:var(--text);padding:11px 16px 11px 42px;border-radius:999px;font-size:14.5px;
+    outline:none;transition:.2s}
+  .search input::placeholder{color:var(--muted)}
+  .search input:focus{background:rgba(255,255,255,.10);border-color:rgba(160,107,255,.6);
+    box-shadow:0 0 0 4px var(--accent-soft)}
+  .search svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);
     width:18px;height:18px;color:var(--muted);pointer-events:none}
-  main{max-width:1180px;margin:0 auto;padding:24px 20px 80px}
+
+  main{max-width:1240px;margin:0 auto;padding:22px 18px 96px}
   .hint{color:var(--muted);font-size:14px}
   .section-title{font-size:13px;text-transform:uppercase;letter-spacing:1.4px;
-    color:var(--muted);margin:10px 0 16px;font-weight:600}
+    color:var(--muted);margin:8px 0 14px;font-weight:700}
+  .row-head{display:flex;align-items:baseline;gap:12px;margin:26px 2px 14px}
+  .row-head h2{font-size:21px;font-weight:800;letter-spacing:-.3px}
+  .row-head .row-sub{font-size:13px;color:var(--muted)}
 
-  /* Grid of results */
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:18px}
-  .card{cursor:pointer;background:var(--panel);border:1px solid var(--border);
-    border-radius:var(--radius);overflow:hidden;transition:transform .18s,border-color .18s}
-  .card:hover{transform:translateY(-4px);border-color:var(--accent)}
+  /* ===== HERO (featured carousel) ===== */
+  .hero{position:relative;height:clamp(320px,46vw,460px);border-radius:28px;overflow:hidden;
+    margin:6px 0 8px;box-shadow:var(--shadow);isolation:isolate}
+  .hero-bg{position:absolute;inset:0;background-size:cover;background-position:center 22%;
+    transform:scale(1.08);filter:saturate(1.15);opacity:0;transition:opacity .7s ease}
+  .hero-bg.show{opacity:1}
+  .card .thumb{transition:opacity .45s ease}
+  .card .thumb.swapping{opacity:.35}
+  .hero-scrim{position:absolute;inset:0;
+    background:
+      linear-gradient(90deg, rgba(7,8,18,.92) 0%, rgba(7,8,18,.72) 38%, rgba(7,8,18,.18) 70%, rgba(7,8,18,.55) 100%),
+      linear-gradient(0deg, rgba(7,8,18,.95) 0%, transparent 45%)}
+  .hero-inner{position:absolute;left:0;bottom:0;z-index:2;padding:clamp(20px,3vw,40px);
+    max-width:640px;display:flex;flex-direction:column;gap:12px}
+  .hero-badge{align-self:flex-start;font-size:11.5px;font-weight:700;letter-spacing:1px;
+    text-transform:uppercase;color:var(--text);padding:6px 12px;border-radius:999px;
+    background:rgba(255,255,255,.10);backdrop-filter:blur(12px);
+    border:1px solid var(--glass-brd)}
+  .hero-title{font-size:clamp(26px,4vw,46px);font-weight:800;line-height:1.05;letter-spacing:-.5px;
+    text-shadow:0 2px 24px rgba(0,0,0,.5)}
+  .hero-meta{font-size:13.5px;color:#d6d9ee;font-weight:600}
+  .hero-desc{font-size:14.5px;color:#c4c8e0;display:-webkit-box;-webkit-line-clamp:3;
+    -webkit-box-orient:vertical;overflow:hidden;max-width:560px}
+  .hero-actions{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-size:15px;font-weight:700;
+    padding:12px 22px;border-radius:999px;border:none;cursor:pointer;transition:.18s;white-space:nowrap}
+  .btn-primary{color:#fff;background:linear-gradient(90deg,var(--accent),var(--accent-2));
+    box-shadow:0 8px 24px rgba(120,90,255,.45)}
+  .btn-primary:hover{filter:brightness(1.08);transform:translateY(-2px)}
+  .btn-glass{color:var(--text);background:rgba(255,255,255,.12);backdrop-filter:blur(14px);
+    border:1px solid var(--glass-brd)}
+  .btn-glass:hover{background:rgba(255,255,255,.2);transform:translateY(-2px)}
+  .hero-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:3;width:42px;height:42px;
+    border-radius:50%;display:grid;place-items:center;cursor:pointer;font-size:24px;color:#fff;
+    background:rgba(255,255,255,.10);backdrop-filter:blur(14px);border:1px solid var(--glass-brd);
+    transition:.18s;opacity:0}
+  .hero:hover .hero-nav{opacity:1}
+  .hero-nav:hover{background:rgba(255,255,255,.22)}
+  .hero-nav.prev{left:16px}
+  .hero-nav.next{right:16px}
+  .hero-dots{position:absolute;right:clamp(20px,3vw,40px);bottom:clamp(20px,3vw,40px);z-index:3;
+    display:flex;gap:8px}
+  .hero-dots .hd{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,.3);
+    cursor:pointer;transition:.2s}
+  .hero-dots .hd.active{background:#fff;width:24px;border-radius:6px}
+
+  /* ===== Rails (horizontal scroll) ===== */
+  .rail{display:flex;gap:16px;overflow-x:auto;overflow-y:hidden;padding:4px 2px 16px;
+    scroll-snap-type:x proximity;scrollbar-width:thin}
+  .rail .card{flex:0 0 168px;scroll-snap-align:start}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:18px}
+
+  /* ===== Cards ===== */
+  .card{cursor:pointer;border-radius:var(--radius-sm);overflow:hidden;position:relative;
+    background:var(--glass);border:1px solid var(--glass-brd);
+    box-shadow:0 6px 20px rgba(0,0,0,.35);
+    transition:transform .2s cubic-bezier(.2,.8,.3,1),box-shadow .2s,border-color .2s}
+  .card:hover{transform:translateY(-6px) scale(1.015);border-color:rgba(160,107,255,.6);
+    box-shadow:0 18px 40px rgba(120,90,255,.3)}
   .card .thumb{aspect-ratio:2/3;background:var(--panel-2) center/cover no-repeat;display:block}
   .card .meta{padding:10px 12px}
-  .card .meta h3{font-size:14px;font-weight:600;line-height:1.3;
+  .card .meta h3{font-size:13.5px;font-weight:600;line-height:1.3;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .card .meta span{font-size:12px;color:var(--muted)}
 
-  /* Detail view */
-  .detail{display:grid;grid-template-columns:260px 1fr;gap:28px;align-items:start}
-  .detail .poster{width:100%;border-radius:var(--radius);border:1px solid var(--border);
-    aspect-ratio:2/3;object-fit:cover;background:var(--panel-2)}
-  .detail h1{font-size:26px;line-height:1.2;margin-bottom:6px}
+  /* ===== Detail view ===== */
+  .detail{display:grid;grid-template-columns:280px 1fr;gap:30px;align-items:start;
+    background:var(--glass);border:1px solid var(--glass-brd);border-radius:var(--radius);
+    padding:24px;box-shadow:var(--shadow-glass);margin-top:6px}
+  .detail .poster{width:100%;border-radius:var(--radius-sm);border:1px solid var(--glass-brd);
+    aspect-ratio:2/3;object-fit:cover;background:var(--panel-2);box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  .detail h1{font-size:28px;line-height:1.15;margin-bottom:6px;letter-spacing:-.4px;font-weight:800}
   .detail .sub{color:var(--muted);font-size:14px;margin-bottom:16px}
   .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-  .chip{font-size:12px;background:var(--panel);border:1px solid var(--border);
-    padding:5px 10px;border-radius:20px;color:var(--muted)}
+  .chip{font-size:12px;background:rgba(255,255,255,.06);border:1px solid var(--glass-brd);
+    padding:5px 12px;border-radius:999px;color:#c8cce4}
   .desc{color:#c3c8dc;font-size:14.5px;margin-bottom:22px;white-space:pre-line}
-  .back{display:inline-flex;align-items:center;gap:6px;color:var(--muted);
-    font-size:14px;margin-bottom:18px;cursor:pointer}
-  .back:hover{color:var(--text)}
+  .back{display:inline-flex;align-items:center;gap:6px;color:var(--text);font-size:14px;
+    font-weight:600;margin-bottom:16px;cursor:pointer;padding:9px 16px;border-radius:999px;
+    background:rgba(255,255,255,.08);border:1px solid var(--glass-brd);transition:.18s}
+  .back:hover{background:rgba(255,255,255,.16)}
 
   .controls-row{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:18px}
   .field{display:flex;flex-direction:column;gap:6px}
   .field label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
-  select.ui{background:var(--panel);color:var(--text);border:1px solid var(--border);
-    padding:9px 12px;border-radius:10px;font-size:14px;outline:none;cursor:pointer;min-width:170px}
+  select.ui{background:rgba(255,255,255,.06);color:var(--text);border:1px solid var(--glass-brd);
+    padding:10px 14px;border-radius:12px;font-size:14px;outline:none;cursor:pointer;min-width:170px}
   select.ui:focus{border-color:var(--accent)}
+  select.ui option{background:#13151f}
 
   .episodes{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-  .ep{background:var(--panel);border:1px solid var(--border);color:var(--text);
-    padding:8px 14px;border-radius:10px;font-size:14px;cursor:pointer;transition:.15s}
-  .ep:hover{border-color:var(--accent)}
-  .ep.active{background:var(--accent);border-color:var(--accent);color:#0d0e15;font-weight:600}
+  .ep{background:rgba(255,255,255,.06);border:1px solid var(--glass-brd);color:var(--text);
+    padding:9px 16px;border-radius:12px;font-size:14px;cursor:pointer;transition:.15s;font-weight:600}
+  .ep:hover{border-color:var(--accent);background:rgba(255,255,255,.12)}
+  .ep.active{background:linear-gradient(90deg,var(--accent),var(--accent-2));border-color:transparent;
+    color:#fff;box-shadow:0 6px 18px rgba(120,90,255,.45)}
 
-  /* Ambient Light (canvas glow behind the custom player) */
+  /* ===== Ambient Light ===== */
   .player-stage{position:relative}
   .player-stage .player-wrap{position:relative;z-index:1}
   .ambient{position:absolute;left:-5%;top:-8%;width:110%;height:120%;z-index:0;
-    border-radius:28px;opacity:0;pointer-events:none;
+    border-radius:34px;opacity:0;pointer-events:none;
     filter:blur(60px) saturate(1.7) brightness(1.05);
     transform:translateZ(0);will-change:opacity;transition:opacity .7s ease}
   .player-stage.ambient-on .ambient{opacity:.8}
   @media(max-width:720px){ .ambient{filter:blur(40px) saturate(1.6)} }
 
-  /* Player */
+  /* ===== Player ===== */
   .player-wrap{position:relative;background:#000;border-radius:var(--radius);
-    overflow:hidden;border:1px solid var(--border);margin-bottom:18px;aspect-ratio:16/9}
+    overflow:hidden;border:1px solid var(--glass-brd);margin-bottom:18px;aspect-ratio:16/9;
+    box-shadow:var(--shadow)}
   .player-wrap.hidden{display:none}
   video{width:100%;height:100%;display:block;background:#000}
-  .pl-controls{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 12px;
-    background:linear-gradient(transparent,rgba(0,0,0,.85));opacity:0;transition:opacity .25s;
+  .pl-controls{position:absolute;left:0;right:0;bottom:0;padding:12px 16px 14px;
+    background:linear-gradient(transparent,rgba(0,0,0,.88));opacity:0;transition:opacity .25s;
     display:flex;flex-direction:column;gap:8px}
   .player-wrap:hover .pl-controls,.player-wrap.paused .pl-controls{opacity:1}
   .timeline{appearance:none;width:100%;height:5px;border-radius:6px;cursor:pointer;
-    background:rgba(255,255,255,.18);outline:none}
-  .timeline::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;
+    background:rgba(255,255,255,.22);outline:none}
+  .timeline::-webkit-slider-thumb{appearance:none;width:14px;height:14px;border-radius:50%;
     background:var(--accent);box-shadow:0 0 0 4px var(--accent-soft);cursor:pointer}
-  .timeline::-moz-range-thumb{width:13px;height:13px;border:none;border-radius:50%;background:var(--accent)}
+  .timeline::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--accent)}
   .pl-btns{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .pl-btns .spacer{flex:1;min-width:4px}
-  .iconbtn{background:none;border:none;color:#fff;cursor:pointer;width:30px;height:30px;
-    display:grid;place-items:center;opacity:.92;transition:.15s}
-  .iconbtn:hover{opacity:1;color:var(--accent)}
+  .iconbtn{background:none;border:none;color:#fff;cursor:pointer;width:32px;height:32px;
+    display:grid;place-items:center;opacity:.92;transition:.15s;border-radius:8px}
+  .iconbtn:hover{opacity:1;color:var(--accent);background:rgba(255,255,255,.1)}
   .iconbtn.active{color:var(--mint)}
   .iconbtn svg{width:22px;height:22px}
   .time{font-size:13px;color:#cfd3e6;font-variant-numeric:tabular-nums;white-space:nowrap}
   .vol{display:flex;align-items:center;gap:8px}
-  .vol input{appearance:none;width:80px;height:4px;border-radius:6px;background:rgba(255,255,255,.25);cursor:pointer}
-  .vol input::-webkit-slider-thumb{appearance:none;width:11px;height:11px;border-radius:50%;background:#fff}
-  .pl-select{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2);
-    border-radius:8px;font-size:12.5px;padding:5px 8px;cursor:pointer;outline:none}
-  .pl-select option{background:#161925}
+  .vol input{appearance:none;width:80px;height:4px;border-radius:6px;background:rgba(255,255,255,.3);cursor:pointer}
+  .vol input::-webkit-slider-thumb{appearance:none;width:12px;height:12px;border-radius:50%;background:#fff}
+  .pl-select{background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.22);
+    border-radius:9px;font-size:12.5px;padding:6px 9px;cursor:pointer;outline:none}
+  .pl-select option{background:#13151f}
 
-  /* Source tabs + embed player */
+  /* ===== Source tabs + embed ===== */
   .source-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
-  .src-tab{background:var(--panel);border:1px solid var(--border);color:var(--muted);
-    padding:9px 14px;border-radius:10px;font-size:13.5px;cursor:pointer;transition:.15s;font-weight:600}
+  .src-tab{background:rgba(255,255,255,.06);border:1px solid var(--glass-brd);color:var(--muted);
+    padding:10px 16px;border-radius:999px;font-size:13.5px;cursor:pointer;transition:.15s;font-weight:700}
   .src-tab:hover{color:var(--text);border-color:var(--accent)}
-  .src-tab.active{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+  .src-tab.active{background:linear-gradient(90deg,var(--accent-soft),rgba(91,140,255,.18));
+    border-color:rgba(160,107,255,.6);color:var(--text)}
   .embed-wrap{position:relative;aspect-ratio:16/9;border-radius:var(--radius);overflow:hidden;
-    border:1px solid var(--border);margin-bottom:18px;background:#000}
+    border:1px solid var(--glass-brd);margin-bottom:18px;background:#000;box-shadow:var(--shadow)}
   .embed-wrap.hidden{display:none}
   .embed-wrap iframe{width:100%;height:100%;border:0;display:block}
 
-  /* States */
+  /* ===== States ===== */
   .state{padding:60px 0;text-align:center;color:var(--muted)}
-  .spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);
+  .spinner{width:34px;height:34px;border:3px solid rgba(255,255,255,.14);border-top-color:var(--accent);
     border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
   @keyframes spin{to{transform:rotate(360deg)}}
   .hidden{display:none!important}
 
-  /* Continue watching */
-  .resume{display:flex;align-items:center;gap:14px;background:var(--panel);
-    border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:26px;
-    cursor:pointer;transition:border-color .18s}
-  .resume:hover{border-color:var(--accent)}
-  .resume img{width:48px;height:66px;object-fit:cover;border-radius:8px;background:var(--panel-2)}
-  .resume .r-info h4{font-size:15px}
+  /* ===== Continue watching ===== */
+  .resume{display:flex;align-items:center;gap:14px;background:var(--glass);
+    border:1px solid var(--glass-brd);border-radius:var(--radius-sm);padding:14px;margin-bottom:10px;
+    cursor:pointer;transition:.18s;box-shadow:var(--shadow-glass)}
+  .resume:hover{border-color:rgba(160,107,255,.6);transform:translateY(-2px)}
+  .resume img{width:48px;height:66px;object-fit:cover;border-radius:10px;background:var(--panel-2)}
+  .resume .r-info h4{font-size:15px;font-weight:700}
   .resume .r-info p{font-size:13px;color:var(--muted)}
-  .resume .r-go{margin-left:auto;color:var(--accent);font-weight:600;font-size:14px}
+  .resume .r-go{margin-left:auto;color:var(--accent);font-weight:700;font-size:14px}
 
-  /* Picture-in-Picture floating mini-bar (return to player) */
-  .mini-return{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(120%);
-    display:flex;align-items:center;gap:12px;background:var(--panel-2);
-    border:1px solid var(--accent);border-radius:14px;padding:10px 14px;z-index:60;
+  /* ===== PiP mini-bar ===== */
+  .mini-return{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(140%);
+    display:flex;align-items:center;gap:12px;
+    background:var(--glass);backdrop-filter:blur(22px) saturate(180%);
+    -webkit-backdrop-filter:blur(22px) saturate(180%);
+    border:1px solid rgba(160,107,255,.5);border-radius:999px;padding:10px 16px;z-index:60;
     box-shadow:var(--shadow);cursor:pointer;max-width:calc(100vw - 32px);
-    opacity:0;pointer-events:none;transition:transform .3s ease,opacity .3s ease}
+    opacity:0;pointer-events:none;transition:transform .35s cubic-bezier(.2,.9,.3,1),opacity .35s}
   .mini-return.show{transform:translateX(-50%) translateY(0);opacity:1;pointer-events:auto}
-  .mini-return img{width:36px;height:50px;object-fit:cover;border-radius:7px;background:var(--panel)}
+  .mini-return img{width:36px;height:50px;object-fit:cover;border-radius:9px;background:var(--panel)}
   .mini-return .mr-info{min-width:0}
-  .mini-return .mr-info h5{font-size:13.5px;font-weight:600;white-space:nowrap;
+  .mini-return .mr-info h5{font-size:13.5px;font-weight:700;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;max-width:200px}
   .mini-return .mr-info p{font-size:12px;color:var(--muted)}
   .mini-return .mr-go{margin-left:4px;color:var(--accent);font-weight:700;font-size:14px;white-space:nowrap}
   .mini-return .mr-close{background:none;border:none;color:var(--muted);cursor:pointer;
-    font-size:18px;line-height:1;padding:4px;border-radius:6px}
-  .mini-return .mr-close:hover{color:var(--text);background:rgba(255,255,255,.08)}
+    font-size:18px;line-height:1;padding:4px;border-radius:50%}
+  .mini-return .mr-close:hover{color:var(--text);background:rgba(255,255,255,.1)}
 
-  /* Toast */
-  .toast{position:fixed;left:50%;bottom:88px;transform:translateX(-50%) translateY(20px);
-    background:rgba(20,22,34,.96);border:1px solid var(--border);color:var(--text);
-    padding:11px 18px;border-radius:12px;font-size:14px;z-index:70;box-shadow:var(--shadow);
+  /* ===== Toast ===== */
+  .toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(20px);
+    background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid var(--glass-brd);color:var(--text);
+    padding:12px 20px;border-radius:999px;font-size:14px;z-index:70;box-shadow:var(--shadow);
     opacity:0;pointer-events:none;transition:opacity .3s,transform .3s;max-width:90vw;text-align:center}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
-  /* Keyboard / gesture hint chip */
-  .kbd{display:inline-block;background:var(--panel);border:1px solid var(--border);
+  .kbd{display:inline-block;background:rgba(255,255,255,.08);border:1px solid var(--glass-brd);
     border-radius:6px;padding:1px 6px;font-size:11px;color:var(--muted);font-family:monospace}
 
+  /* TMDB HD-artwork key bar */
+  .tmdb-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 16px;
+    padding:12px 16px;border-radius:16px;background:var(--glass);border:1px solid var(--glass-brd);
+    box-shadow:var(--shadow-glass);backdrop-filter:blur(20px)}
+  .tmdb-bar p{font-size:13.5px;color:#c8cce4;flex:1 1 220px;min-width:180px}
+  .tmdb-bar p a{color:var(--accent);text-decoration:underline}
+  .tmdb-bar input{flex:1 1 160px;min-width:150px;background:rgba(255,255,255,.06);
+    border:1px solid var(--glass-brd);color:var(--text);padding:10px 12px;border-radius:10px;
+    font-size:13.5px;outline:none}
+  .tmdb-bar input:focus{border-color:var(--accent)}
+  .tmdb-bar .btn{padding:10px 18px;font-size:14px}
+  .nav-link.on{color:var(--mint)}
+
+  /* ===== Responsive ===== */
+  @media(max-width:860px){
+    .nav{display:none}
+    .search{max-width:none}
+  }
   @media(max-width:720px){
-    .detail{grid-template-columns:1fr}
-    .detail .poster{max-width:160px;margin:0 auto}
-    .bar{flex-wrap:wrap;gap:10px;padding:11px 14px}
-    .search{max-width:none;order:3;flex-basis:100%}
-    main{padding:18px 14px 90px}
-    .grid{grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:12px}
+    header{padding:10px 10px 0}
+    .bar{flex-wrap:wrap;gap:10px;padding:10px 12px;border-radius:22px}
+    .logo{font-size:17px}
+    .search{order:3;flex-basis:100%;margin-left:0}
+    main{padding:16px 12px 100px}
+    .hero{height:clamp(300px,70vw,400px);border-radius:22px}
+    .hero-desc{-webkit-line-clamp:2}
+    .hero-nav{display:none}
+    .row-head h2{font-size:18px}
+    .rail .card{flex-basis:140px}
+    .grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}
+    .detail{grid-template-columns:1fr;padding:18px}
+    .detail .poster{max-width:170px;margin:0 auto}
+    .detail h1{font-size:22px}
     .card .meta{padding:8px 10px}
     .card .meta h3{font-size:13px}
-    .detail h1{font-size:21px}
-    /* On touch screens controls should stay visible (no hover) */
     .pl-controls{opacity:1}
     .iconbtn{width:34px;height:34px}
     .iconbtn svg{width:24px;height:24px}
     .vol input{width:60px}
-    .source-tabs{gap:6px}
-    .src-tab{padding:8px 11px;font-size:12.5px}
-    .ep{padding:9px 15px}
+    .src-tab{padding:8px 13px;font-size:12.5px}
   }
-  @media(max-width:420px){
+  @media(max-width:430px){
+    .rail .card{flex-basis:122px}
     .grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
     .vol{display:none}
+    .btn{padding:11px 18px;font-size:14px}
   }
-  @media (hover:none){ .pl-controls{opacity:1} }
+  @media (hover:none){ .pl-controls{opacity:1} .hero-nav{opacity:1} }
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important;animation-duration:.01ms!important} }
 </style>
 </head>
 <body>
   <header>
     <div class="bar">
       <div class="logo" id="logoBtn" title="На главную" role="button" tabindex="0"><b>Israel</b></div>
+      <nav class="nav">
+        <a class="nav-link active" id="navHome">Главная</a>
+        <a class="nav-link" id="navNew">Новинки</a>
+        <a class="nav-link" id="navHd" title="HD-обложки баннера (TMDB)">HD</a>
+      </nav>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         <input id="searchInput" type="search" placeholder="Поиск аниме по названию…" autocomplete="off" />
@@ -220,9 +345,36 @@
   <main>
     <!-- HOME -->
     <section id="home">
+      <!-- TMDB HD-artwork key entry (hidden until needed) -->
+      <div class="tmdb-bar hidden" id="tmdbBar">
+        <p>🎬 HD-обложки баннера через TMDB. Вставьте бесплатный API-ключ (v3) — сохранится локально. <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Где взять?</a></p>
+        <input id="tmdbInput" type="text" placeholder="TMDB API key (v3)" autocomplete="off" spellcheck="false" />
+        <button class="btn btn-primary" id="tmdbSave">Сохранить</button>
+        <button class="mr-close" id="tmdbDismiss" title="Скрыть">✕</button>
+      </div>
+      <!-- Featured hero carousel -->
+      <section class="hero hidden" id="hero">
+        <div class="hero-bg" id="heroBg"></div>
+        <div class="hero-bg" id="heroBgB"></div>
+        <div class="hero-scrim"></div>
+        <div class="hero-inner">
+          <span class="hero-badge">✨ Рекомендуем</span>
+          <h1 class="hero-title" id="heroTitle"></h1>
+          <p class="hero-meta" id="heroMeta"></p>
+          <p class="hero-desc" id="heroDesc"></p>
+          <div class="hero-actions">
+            <button class="btn btn-primary" id="heroPlay">▶ Смотреть</button>
+            <button class="btn btn-glass" id="heroDetails">Подробнее</button>
+          </div>
+        </div>
+        <button class="hero-nav prev" id="heroPrev" aria-label="Назад">‹</button>
+        <button class="hero-nav next" id="heroNext" aria-label="Вперёд">›</button>
+        <div class="hero-dots" id="heroDots"></div>
+      </section>
+
       <div id="resumeSlot"></div>
-      <h2 class="section-title" id="resultsTitle">Популярное</h2>
-      <div id="results" class="grid"></div>
+      <div class="row-head"><h2 id="resultsTitle">Новые серии</h2><span class="row-sub" id="resultsSub"></span></div>
+      <div id="results" class="rail"></div>
       <div id="homeState" class="state hidden"></div>
     </section>
 
@@ -236,7 +388,8 @@
       </div>
 
       <div class="embed-wrap hidden" id="embedWrap">
-        <iframe id="embedFrame" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="origin"></iframe>
+        <iframe id="embedFrame" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="origin"
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock allow-orientation-lock"></iframe>
       </div>
 
       <div class="player-stage" id="playerStage">
@@ -308,6 +461,15 @@
   const SITE = 'https://anilibria.top';
   const STORE = 'aniwired:last';
 
+  /* =====================================================================
+     ВСТРОЕННЫЙ TMDB-КЛЮЧ (опционально)
+     Вставь сюда свой постоянный TMDB API-ключ (v3) между кавычками ниже.
+     Тогда HD-обложки баннера будут работать сразу у всех без ручного ввода.
+     Пример: const TMDB_KEY = 'a1b2c3d4e5f6...';
+     (Ключ v3 — read-only и всё равно виден в запросах, так что встраивать его на клиенте — стандартная практика.)
+     ===================================================================== */
+  const TMDB_KEY = '7b19d2d4ace89674cb0238eeff2f89b2';
+
   const $  = (s, r=document) => r.querySelector(s);
   const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
@@ -325,6 +487,12 @@
     logo:$('#logoBtn'), pipBtn:$('#pipBtn'), rewBtn:$('#rewBtn'), fwdBtn:$('#fwdBtn'),
     miniReturn:$('#miniReturn'), mrPoster:$('#mrPoster'), mrTitle:$('#mrTitle'),
     mrClose:$('#mrClose'), toast:$('#toast'),
+    resultsSub:$('#resultsSub'), navHome:$('#navHome'), navNew:$('#navNew'),
+    hero:$('#hero'), heroBg:$('#heroBg'), heroBgB:$('#heroBgB'), heroTitle:$('#heroTitle'), heroMeta:$('#heroMeta'),
+    heroDesc:$('#heroDesc'), heroPlay:$('#heroPlay'), heroDetails:$('#heroDetails'),
+    heroPrev:$('#heroPrev'), heroNext:$('#heroNext'), heroDots:$('#heroDots'),
+    navHd:$('#navHd'), tmdbBar:$('#tmdbBar'), tmdbInput:$('#tmdbInput'),
+    tmdbSave:$('#tmdbSave'), tmdbDismiss:$('#tmdbDismiss'),
   };
 
   /* ---- state ---- */
@@ -394,6 +562,165 @@
     }
   }
 
+  /* ============ Featured hero carousel ============ */
+  let heroItems = [], heroIdx = 0, heroTimer = 0, heroFrontIsB = false;
+  // Upgrade the hero artwork to a wide HD banner from AniList (bannerImage) instead
+  // of stretching AniLibria's vertical poster. AniList GraphQL is public + CORS-enabled
+  // and already used elsewhere, so this needs no API key. Falls back gracefully.
+  const heroBgCache = {};
+  const getTmdbKey = () => localStorage.getItem('tmdb:key') || TMDB_KEY || '';
+  // Try TMDB first (best wide HD backdrops) when an API key is set, then AniList
+  // bannerImage / extraLarge cover, then the AniLibria poster as last resort.
+  // Strip trailing season / part / sequel markers so a sequel title can fall back
+  // to its base series (e.g. "Девушка на час 5" -> "Девушка на час").
+  function baseName(s){
+    let x = String(s || '').trim();
+    x = x.replace(/\s*[:\-–—]\s*$/, '');
+    x = x.replace(/\s+(season\s*\d+|\d+(?:st|nd|rd|th)\s*season|part\s*\d+|cour\s*\d+|сезон\s*\d+|\d+\s*сезон)\s*$/i, '');
+    x = x.replace(/\s+(?:II|III|IV|V|VI|VII|VIII|IX|X)\s*$/, '');
+    x = x.replace(/\s+\d+\s*$/, '');
+    return x.trim();
+  }
+  // Ordered search names: full titles first, then base (season-stripped) titles.
+  function nameVariants(t){
+    const raw = [t.name && t.name.english, t.name && t.name.romaji, t.name && t.name.main, t.alias, titleName(t)].filter(Boolean);
+    const out = [];
+    for(const n of raw){ out.push(n); const b = baseName(n); if(b && b !== n) out.push(b); }
+    return [...new Set(out)].slice(0, 5);
+  }
+  // Find the best matching TMDB tv/movie across the given name variants (in order).
+  async function tmdbFindHit(names){
+    const tk = getTmdbKey();
+    if(!tk) return null;
+    for(const name of names){
+      try{
+        const r = await fetch('https://api.themoviedb.org/3/search/multi?include_adult=false&query=' + encodeURIComponent(name) + '&api_key=' + encodeURIComponent(tk));
+        if(!r.ok) continue;
+        const j = await r.json();
+        const hits = (j.results || []).filter(x => (x.media_type === 'tv' || x.media_type === 'movie') && (x.poster_path || x.backdrop_path))
+          .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+        if(hits[0]) return hits[0];
+      }catch(e){}
+    }
+    return null;
+  }
+  async function tmdbBackdrop(names){
+    const hit = await tmdbFindHit(names);
+    if(!hit) return null;
+    const tk = getTmdbKey();
+    // Prefer a clean, high-rated, preferably textless backdrop from the images endpoint.
+    try{
+      const ir = await fetch('https://api.themoviedb.org/3/' + hit.media_type + '/' + hit.id + '/images?include_image_language=en,null&api_key=' + encodeURIComponent(tk));
+      if(ir.ok){
+        const ij = await ir.json();
+        const bds = ij.backdrops || [];
+        if(bds.length){
+          const textless = bds.filter(b => b.iso_639_1 === null);
+          const pick = (textless.length ? textless : bds).sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))[0];
+          if(pick && pick.file_path) return 'https://image.tmdb.org/t/p/original' + pick.file_path;
+        }
+      }
+    }catch(e){}
+    return hit.backdrop_path ? 'https://image.tmdb.org/t/p/original' + hit.backdrop_path : null;
+  }
+  async function bestBackdrop(t){
+    const key = (t.id != null ? 'id' + t.id : titleName(t));
+    if(heroBgCache[key]) return heroBgCache[key];
+    const fallback = posterUrl(t);
+    const s = (t.name && (t.name.english || t.name.romaji || t.name.main)) || t.alias || titleName(t);
+    // 1) TMDB landscape backdrop (HD), with season-stripped base-series fallback
+    const tm = await tmdbBackdrop(nameVariants(t));
+    if(tm){ heroBgCache[key] = tm; return tm; }
+    // 2) AniList wide banner / large cover
+    try{
+      const r = await fetch('https://graphql.anilist.co', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify({ query:'query($s:String){Media(search:$s,type:ANIME){bannerImage coverImage{extraLarge}}}', variables:{ s } })
+      });
+      const j = await r.json();
+      const m = j.data && j.data.Media;
+      const url = (m && (m.bannerImage || (m.coverImage && m.coverImage.extraLarge))) || fallback;
+      heroBgCache[key] = url;
+      return url;
+    }catch(e){ heroBgCache[key] = fallback; return fallback; }
+  }
+  function buildHero(list){
+    heroItems = (list || []).filter(t => posterUrl(t)).slice(0, 6);
+    if(!heroItems.length){ hideHero(); return; }
+    el.hero.classList.remove('hidden');
+    el.heroDots.innerHTML = heroItems.map((_, i) => '<span class="hd' + (i===0?' active':'') + '" data-i="' + i + '"></span>').join('');
+    $$('.hd', el.heroDots).forEach(d => d.onclick = () => { setHero(+d.dataset.i); restartHeroTimer(); });
+    setHero(0);
+    restartHeroTimer();
+  }
+  function setHero(i){
+    if(!heroItems.length) return;
+    heroIdx = (i + heroItems.length) % heroItems.length;
+    const t = heroItems[heroIdx];
+    const slide = heroIdx;
+    // Preload the best HD art, then crossfade between two layers so the user never
+    // sees a blurry low-res poster pop into a sharp one (no ugly mid-load swap).
+    bestBackdrop(t).then(url => {
+      if(heroIdx !== slide || !url) return;
+      const img = new Image();
+      const apply = () => {
+        if(heroIdx !== slide) return;
+        const back  = heroFrontIsB ? el.heroBg : el.heroBgB;
+        const front = heroFrontIsB ? el.heroBgB : el.heroBg;
+        back.style.backgroundImage = 'url(' + url + ')';
+        back.classList.add('show');
+        front.classList.remove('show');
+        heroFrontIsB = !heroFrontIsB;
+      };
+      img.onload = apply; img.onerror = apply;
+      img.src = url;
+    });
+    el.heroTitle.textContent = titleName(t);
+    const genres = (t.genres || []).slice(0,3).map(g => typeof g === 'string' ? g : g.name).filter(Boolean).join(', ');
+    el.heroMeta.textContent = [ (t.type && (t.type.description || t.type.value)), releaseYear(t), genres ].filter(Boolean).join('   •   ');
+    el.heroDesc.textContent = (t.description || '').replace(/\s+/g, ' ').trim();
+    $$('.hd', el.heroDots).forEach((d, idx) => d.classList.toggle('active', idx === heroIdx));
+    const open = () => t._kodik ? openKodikTitle(t) : openTitle(t.id);
+    el.heroPlay.onclick = open;
+    el.heroDetails.onclick = open;
+  }
+  function restartHeroTimer(){ clearInterval(heroTimer); heroTimer = setInterval(() => setHero(heroIdx + 1), 6500); }
+  function hideHero(){ el.hero.classList.add('hidden'); clearInterval(heroTimer); }
+  el.heroPrev.onclick = () => { setHero(heroIdx - 1); restartHeroTimer(); };
+  el.heroNext.onclick = () => { setHero(heroIdx + 1); restartHeroTimer(); };
+
+  /* ---- per-card HD poster upgrade (TMDB), lazy + cached ---- */
+  const tmdbPosterCache = {};
+  async function tmdbPoster(names){
+    if(!getTmdbKey()) return null;
+    const ck = names.join('|');
+    if(tmdbPosterCache[ck] !== undefined) return tmdbPosterCache[ck];
+    const hit = await tmdbFindHit(names);
+    const u = (hit && hit.poster_path) ? 'https://image.tmdb.org/t/p/w500' + hit.poster_path : null;
+    tmdbPosterCache[ck] = u;
+    return u;
+  }
+  // Only upgrade cards once they scroll into view, to limit API calls.
+  const cardObserver = ('IntersectionObserver' in window) ? new IntersectionObserver((entries, obs) => {
+    for(const en of entries){
+      if(!en.isIntersecting) continue;
+      const c = en.target; obs.unobserve(c);
+      if(!getTmdbKey() || !c._art) continue;
+      tmdbPoster(c._art).then(url => {
+        if(!url) return;
+        const img = new Image();
+        img.onload = () => {
+          const th = c.querySelector('.thumb');
+          if(!th) return;
+          th.classList.add('swapping');               // brief dim while swapping
+          setTimeout(() => { th.style.backgroundImage = 'url(' + url + ')'; th.classList.remove('swapping'); }, 120);
+        };
+        img.src = url;                                  // preload first, no broken flash
+      });
+    }
+  }, { rootMargin: '300px' }) : null;
+
   /* ---- render results grid ---- */
   function renderResults(list){
     el.results.innerHTML = '';
@@ -407,6 +734,8 @@
         '<div class="meta"><h3>' + escapeHtml(titleName(t)) + '</h3>' +
         '<span>' + (t.type ? (t.type.description || t.type.value || '') : '') + (releaseYear(t) ? ' • ' + releaseYear(t) : '') + '</span></div>';
       c.onclick = () => t._kodik ? openKodikTitle(t) : openTitle(t.id);
+      // Small card thumbnails intentionally keep the AniLibria/AniList poster
+      // (incl. AI placeholders) - TMDB upgrade is reserved for the big hero banner.
       frag.appendChild(c);
     }
     el.results.appendChild(frag);
@@ -694,7 +1023,7 @@
         method:'POST',
         headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
         body: JSON.stringify({
-          query:'query($s:String){Page(perPage:24){media(search:$s,type:ANIME,sort:SEARCH_MATCH){id idMal title{romaji english native} description(asHtml:false) episodes format seasonYear coverImage{large} genres}}}',
+          query:'query($s:String){Page(perPage:24){media(search:$s,type:ANIME,sort:SEARCH_MATCH){id idMal title{romaji english native} description(asHtml:false) episodes format seasonYear coverImage{extraLarge large} genres}}}',
           variables:{ s:q }
         })
       });
@@ -705,7 +1034,7 @@
         _mal:(m.idMal != null ? m.idMal : null),
         id:'al-' + m.id,
         name:{ main:(m.title.romaji || m.title.english || m.title.native), english:m.title.english, romaji:m.title.romaji },
-        poster:{ src:(m.coverImage && m.coverImage.large) || '' },
+        poster:{ src:(m.coverImage && (m.coverImage.extraLarge || m.coverImage.large)) || '' },
         type:{ description:(m.format || '').replace(/_/g,' ') },
         year:(m.seasonYear || null),
         description:(m.description || '').replace(/<br\s*\/?>/gi,'\n').replace(/<[^>]+>/g,''),
@@ -820,7 +1149,7 @@
   el.ambientBtn.onclick = () => setAmbient(!ambient.enabled);
   document.addEventListener('visibilitychange', () => { document.hidden ? stopAmbient(true) : startAmbient(); });
   el.ambientBtn.classList.toggle('active', ambient.enabled);
-  el.ambientBtn.title = ambient.enabled ? 'Фоновое свечение: вкл' : 'Фоновое свечение: выкл';
+  el.ambientBtn.title = ambient.enabled ? 'Фо  овое свечение: вкл' : 'Фоновое свечение: выкл';
 
   function togglePlay(){ v.paused ? v.play() : v.pause(); }
   el.playBtn.onclick = togglePlay;
@@ -932,15 +1261,34 @@
     if(!q){ if(!el.detail.classList.contains('hidden')) showHome(keepPlaying); loadHome(); return; }
     // If we're on the detail/player view, jump back to the results grid so search is visible.
     if(!el.detail.classList.contains('hidden')) showHome(keepPlaying);
+    hideHero();
+    el.results.className = 'grid';
     el.resultsTitle.textContent = 'Результаты: "' + q + '"';
+    el.resultsSub.textContent = '';
     el.results.innerHTML = '<div class="spinner"></div>';
     try{
-      let list = await searchTitles(q);
-      if(!list.length){
-        const ext = await searchAniListTitles(q);
-        if(ext.length){ el.resultsTitle.textContent = 'Нет в AniLibria — нашёл для Kodik: "' + q + '"'; renderResults(ext); return; }
-      }
-      renderResults(list);
+      // Always query BOTH sources in parallel: AniLibria (ad-free custom player)
+      // AND the much larger Kodik/AniList catalog. Previously the AniList catalog
+      // was only a fallback when AniLibria returned nothing, so titles that exist
+      // on AniLibria (e.g. K-On! S1) hid everything else (movies, other seasons).
+      const [libria, ext] = await Promise.all([
+        searchTitles(q).catch(() => []),
+        searchAniListTitles(q).catch(() => []),
+      ]);
+      // De-dupe: drop Kodik catalog entries already covered by an AniLibria match.
+      const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9а-яё]+/gi, '').trim();
+      const libriaKeys = new Set();
+      libria.forEach(t => [titleName(t), t.name && t.name.english, t.name && t.name.romaji, t.alias]
+        .forEach(n => { const k = norm(n); if(k) libriaKeys.add(k); }));
+      const extras = ext.filter(t => ![t.name && t.name.main, t.name && t.name.english, t.name && t.name.romaji]
+        .some(n => { const k = norm(n); return k && libriaKeys.has(k); }));
+      const merged = [...libria, ...extras];
+      if(!merged.length){ el.results.innerHTML = '<p class="hint">Ничего не найдено.</p>'; return; }
+      el.resultsTitle.textContent = 'Результаты: "' + q + '"';
+      el.resultsSub.textContent = (libria.length && extras.length)
+        ? 'AniLibria + расширенный каталог (Kodik)'
+        : (extras.length ? 'Расширенный каталог (Kodik)' : 'AniLibria');
+      renderResults(merged);
     }
     catch(err){ el.results.innerHTML = '<p class="hint">Ошибка поиска: '+err.message+'</p>'; }
   }, 350));
@@ -957,6 +1305,35 @@
   }
   el.logo.onclick = goHome;
   el.logo.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); goHome(); } });
+  el.navHome.onclick = goHome;
+  el.navNew.onclick = goHome;
+
+  /* ---- TMDB HD-artwork key management ---- */
+  function openTmdbBar(){
+    el.tmdbBar.classList.remove('hidden');
+    el.tmdbInput.value = getTmdbKey();
+    el.tmdbInput.focus();
+    if(el.detail && !el.detail.classList.contains('hidden')) goHome();
+  }
+  function refreshHeroArt(){
+    for(const k in heroBgCache) delete heroBgCache[k];
+    if(heroItems.length) setHero(heroIdx);
+  }
+  el.navHd.classList.toggle('on', !!getTmdbKey());
+  el.navHd.onclick = openTmdbBar;
+  el.tmdbSave.onclick = () => {
+    const v = el.tmdbInput.value.trim();
+    if(v) localStorage.setItem('tmdb:key', v); else localStorage.removeItem('tmdb:key');
+    localStorage.setItem('tmdb:dismissed', '1');
+    el.navHd.classList.toggle('on', !!getTmdbKey());
+    el.tmdbBar.classList.add('hidden');
+    refreshHeroArt();
+    toast(v ? 'TMDB подключён — HD-обложки включены' : 'TMDB-ключ удалён');
+  };
+  el.tmdbInput.addEventListener('keydown', e => { if(e.code === 'Enter') el.tmdbSave.click(); });
+  el.tmdbDismiss.onclick = () => { localStorage.setItem('tmdb:dismissed', '1'); el.tmdbBar.classList.add('hidden'); };
+  // Offer the HD-artwork setup once, on first visit, if no key was set yet.
+  if(!getTmdbKey() && localStorage.getItem('tmdb:dismissed') !== '1') openTmdbBar();
 
   /* ---- mini-return bar: jump back to the player ---- */
   el.miniReturn.onclick = () => { showDetail(); el.miniReturn.classList.remove('show'); };
@@ -976,9 +1353,15 @@
   /* ============ init ============ */
   async function loadHome(){
     el.resultsTitle.textContent = 'Новые серии';
+    el.resultsSub.textContent = '';
+    el.results.className = 'rail';
     el.results.innerHTML = '<div class="spinner"></div>';
-    try{ renderResults(await updatesTitles()); }
-    catch(err){ el.results.innerHTML = '<p class="hint">Не удалось загрузить: '+err.message+'</p>'; }
+    try{
+      const list = await updatesTitles();
+      buildHero(list);
+      renderResults(list);
+    }
+    catch(err){ hideHero(); el.results.className = 'grid'; el.results.innerHTML = '<p class="hint">Не удалось з  грузить: '+err.message+'</p>'; }
   }
   renderResume();
   loadHome();
