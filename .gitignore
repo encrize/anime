@@ -1,0 +1,42 @@
+# ---- dependencies / build ----
+node_modules/
+dist/
+build/
+.cache/
+
+# ---- Cloudflare / Wrangler ----
+# .wrangler holds local state and the local D1 sqlite files
+.wrangler/
+# .dev.vars holds LOCAL SECRETS (JWT_SECRET) - never commit it
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+wrangler.toml.bak
+
+# ---- secrets / env ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+
+# ---- database dumps / backups ----
+*.sqlite
+*.sqlite3
+*.db
+backup*.sql
+dump*.sql
+*-export.sql
+
+# ---- logs / OS / editors ----
+*.log
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

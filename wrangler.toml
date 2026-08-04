@@ -1,0 +1,19 @@
+name = "aniwired"
+main = "worker/worker.js"
+compatibility_date = "2025-06-01"
+
+# ---- static frontend (/public) ------------------------------------
+# not_found_handling = "single-page-application" makes deep links such as
+# /title/9000 return index.html so the History API router can take over.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+# ---- database (free tier: 5 GB storage, 5M reads/day) -------------
+# 1) npx wrangler d1 create aniwired
+# 2) paste the printed database_id below
+[[d1_databases]]
+binding = "DB"
+database_name = "aniwired"
+database_id = "86c19f16-97ab-4d7b-8182-c8a35d038c5d"

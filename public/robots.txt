@@ -1,0 +1,27 @@
+# AniWired
+#
+# Search indexing is intentionally disabled. The site embeds third-party
+# players (AniLibria, Kodik) and lives on a subdomain of the main encrize.vip
+# domain, so being indexed is a liability rather than a growth channel.
+# Growth happens through links shared with friends.
+User-agent: *
+Disallow: /
+
+# Link previews in messengers are NOT search indexing. These crawlers only
+# fetch the Open Graph tags so a shared link unfolds into a card.
+User-agent: Twitterbot
+Allow: /
+
+User-agent: TelegramBot
+Allow: /
+
+User-agent: Discordbot
+Allow: /
+
+User-agent: WhatsApp
+Allow: /
+
+User-agent: facebookexternalhit
+Allow: /
+
+# No sitemap on purpose: it would be meaningless under Disallow: /
