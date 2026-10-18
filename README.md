@@ -7,13 +7,6 @@ accounts, cross-device watch-history sync, comments, and friends.
 > Private project: search indexing is disabled on purpose (`robots.txt`),
 > while messenger crawlers stay allowed so shared links unfold into cards.
 
-## Planning list and discovery update (v8)
-
-**Existing v7 installations must back up D1 and run `migrate-v8.sql` once before deploying this Worker.**
-See [UPDATE-RU.md](UPDATE-RU.md) for safe schema preflight, upgrade steps and limitations.
-See [CHANGES-RU.md](CHANGES-RU.md) for the feature summary, cleanup and verification scope.
-Fresh databases use the updated `schema.sql` instead.
-
 ## Features
 
 - **Private planning list** — Planned / Watching / Completed / On hold / Dropped,
