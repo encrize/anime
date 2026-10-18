@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS progress (
   ep_label     TEXT    NOT NULL DEFAULT '', -- human readable episode number
   ep_total     INTEGER NOT NULL DEFAULT 0,  -- episodes in the title
   source       TEXT    NOT NULL DEFAULT 'libria',
+  kodik_json   TEXT,                       -- player permalink, season and translation
   seen_json    TEXT    NOT NULL DEFAULT '[]', -- JSON array of watched episode indexes
   updated_at   INTEGER NOT NULL,            -- ms epoch, used for conflict resolution
   PRIMARY KEY (user_id, anime_id),

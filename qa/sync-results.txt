@@ -1,0 +1,1 @@
+PASS: fresh-device deep link waits for remote history; queue keeps two titles; failed writes recover; temporary auth outage keeps token; no JS errors

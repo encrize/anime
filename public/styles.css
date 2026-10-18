@@ -1072,3 +1072,73 @@
   .pf-hidden-note b{display:block;color:var(--text);font-size:16px;margin-bottom:8px}
 
 .section-title--block{display:block}
+
+/* Layout fixes: preserve the existing retro theme, remove competing fixed sizes. */
+html{scroll-padding-top:16px}
+header{position:relative;top:auto;left:auto;right:auto;padding:14px 14px 0}
+.bar{min-width:0;flex-wrap:wrap}
+.bar>*{min-width:0}
+.nav{flex-wrap:wrap;flex-shrink:1}
+.nav-link.acct{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search{min-width:180px;flex:1 1 220px;max-width:420px}
+main{padding-top:18px;width:100%;min-width:0}
+main>section,.detail>*,.controls-row,.field,.episodes,.kodik-eps{min-width:0;max-width:100%}
+.detail{grid-template-columns:minmax(150px,280px) minmax(0,1fr)}
+.detail h1,.detail .sub,.desc,.pf-id,.pf-who{overflow-wrap:anywhere}
+.field{width:100%}
+select.ui{min-width:0;max-width:100%;width:fit-content}
+.hero{width:auto;margin-left:calc(-1 * max(18px, (100vw - 1204px)/2));margin-right:calc(-1 * max(18px, (100vw - 1204px)/2));margin-top:0}
+.hero-inner{padding-left:72px;padding-right:72px;padding-bottom:52px;max-width:720px}
+.hero-dots{bottom:18px}
+.hero-nav.prev{left:16px}.hero-nav.next{right:16px}
+.row-head{flex-wrap:wrap}
+.row-head h2{min-width:0;overflow-wrap:anywhere}
+.source-tabs .src-tab{white-space:normal;text-align:left;max-width:100%}
+.embed-wrap,.player-wrap{width:100%;max-width:100%}
+.kodik-eps{width:100%;align-items:stretch}
+.kodik-manual{width:100%}
+.kodik-manual button{white-space:normal}
+.modal-back{padding:max(14px,env(safe-area-inset-top)) 14px max(14px,env(safe-area-inset-bottom))}
+.auth-modal{max-height:calc(100dvh - 28px)}
+.acc-form input{min-width:0;flex:1 1 190px;max-width:100%}
+.fl-people{grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr))}
+@media(max-width:1000px){
+  .bar{gap:10px}.search{order:3;flex-basis:100%;max-width:none;margin-left:0}
+  .nav{margin-left:auto}
+  .detail{grid-template-columns:minmax(140px,220px) minmax(0,1fr);gap:20px;padding:20px}
+}
+@media(max-width:720px){
+  header{padding:10px 10px 0}
+  .bar{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;padding:12px}
+  .logo{justify-self:start;width:fit-content;max-width:100%}
+  .nav{order:0;display:flex;margin-left:0;gap:4px;flex-wrap:wrap}
+  #navHome{display:inline-flex}
+  .nav .nav-link{display:inline-flex;align-items:center;min-height:40px;padding:7px 9px;font-size:11px}
+  .nav-link.acct{max-width:100%}
+  .search{order:0;min-width:0;width:100%;margin-left:0;max-width:none}
+  .search input{font-size:16px}
+  main{padding:16px 12px 96px}
+  .detail{grid-template-columns:minmax(0,1fr);gap:18px;padding:16px}
+  .detail .poster{max-width:170px;justify-self:center}
+  .detail h1{font-size:clamp(19px,5.5vw,26px)}
+  .hero{margin-left:-12px;margin-right:-12px;height:auto;min-height:420px}
+  .hero-inner{position:relative;max-width:100%;padding:100px 20px 50px}
+  .hero-title{font-size:clamp(24px,7vw,36px);overflow-wrap:anywhere}
+  .hero-desc{-webkit-line-clamp:2}
+  .hero-dots{left:20px;right:auto;max-width:calc(100% - 40px);flex-wrap:wrap}
+  .hero-nav{display:none}
+  .kodik-eps{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px}
+  .ep{min-height:44px;padding:9px 10px;font-size:12px}
+  .kodik-manual button{min-height:44px;flex:1 1 150px}
+  .kodik-manual input{font-size:16px;min-height:44px}
+  .pl-controls{padding:8px}.pl-btns{gap:4px}
+  .pl-btns .iconbtn{width:30px;height:30px;flex:none}
+  .time{font-size:11px}.pl-select{max-width:80px;padding:5px}
+  #ambientBtn,#subBtn{display:none}
+  .cw-item{flex-basis:min(82vw,300px)}
+  .mini-return{max-width:calc(100vw - 24px);left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom))}
+}
+@media(max-width:380px){
+  .pl-btns{gap:2px}.pl-btns .spacer{display:none}#rewBtn,#fwdBtn{display:none}
+  .hero-actions .btn{padding:10px 14px}
+}

@@ -33,7 +33,7 @@ const SECURITY_HEADERS = {
     "media-src 'self' blob: data: https:",
     "worker-src 'self' blob:",
     "connect-src 'self' https://anilibria.top https://*.anilibria.top https://api.anilibria.tv https://*.anilibria.tv https://graphql.anilist.co https://api.themoviedb.org https://kodik-api.com https://kodik-add.com https://cdn.jsdelivr.net https://cloudflareinsights.com https://static.cloudflareinsights.com",
-    "frame-src https://kodikplayer.com https://*.kodikplayer.com https://kodik.info https://*.kodik.info https://aniqit.com https://*.aniqit.com https://*.kodik-storage.com",
+    "frame-src https://kodik.cc https://*.kodik.cc https://kodik-storage.com https://kodikplayer.com https://*.kodikplayer.com https://kodik.info https://*.kodik.info https://aniqit.com https://*.aniqit.com https://*.kodik-storage.com",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -181,6 +181,24 @@ async function rateLimit(env, key, max = 10, windowMs = 600000) {
 
 const clientIp = (request) => request.headers.get('CF-Connecting-IP') || '0.0.0.0';
 
+function normalizeKodik(raw) {
+  if(!raw || typeof raw !== 'object') return null;
+  const pos = v => Number.isSafeInteger(Number(v)) && Number(v) > 0 && Number(v) <= 99999999 ? Number(v) : null;
+  let link = '';
+  try {
+    const u = new URL(String(raw.link || ''));
+    const hosts = ['kodikplayer.com', 'kodik.info', 'kodik.cc', 'aniqit.com', 'kodik-storage.com'];
+    if(u.protocol === 'https:' && !u.port && !u.username && !u.password && hosts.some(h => u.hostname === h || u.hostname.endsWith('.' + h))){
+      u.searchParams.delete('token'); link = u.href.slice(0, 2000);
+    }
+  } catch(_) {}
+  return { mal:pos(raw.mal), season:pos(raw.season), translation:pos(raw.translation), link };
+}
+
+function parseKodik(text) {
+  try { return normalizeKodik(JSON.parse(text || 'null')); } catch(_) { return null; }
+}
+
 function normalizeItem(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const animeId = String(raw.id != null ? raw.id : raw.anime_id != null ? raw.anime_id : '').trim();
@@ -200,6 +218,7 @@ function normalizeItem(raw) {
     epLabel: String(raw.epLabel != null ? raw.epLabel : '').slice(0, 32),
     epTotal: num(raw.epTotal, 0),
     source: String(raw.source || 'libria').slice(0, 16),
+    kodik: normalizeKodik(raw.kodik),
     seen,
     ts: num(raw.ts, Date.now()),
   };
@@ -225,6 +244,7 @@ const rowToItem = (r) => ({
   epLabel: r.ep_label,
   epTotal: r.ep_total,
   source: r.source,
+  kodik: parseKodik(r.kodik_json),
   seen: parseSeen(r.seen_json),
   ts: r.updated_at,
 });
@@ -421,8 +441,8 @@ async function maybeRefreshToken(env, user) {
 async function upsertProgress(env, userId, item) {
   return env.DB.prepare(
     `INSERT INTO progress (user_id, anime_id, name, poster, episode_idx, quality, time_sec, duration_sec,
-                           ep_label, ep_total, source, seen_json, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                           ep_label, ep_total, source, seen_json, updated_at, kodik_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
      ON CONFLICT(user_id, anime_id) DO UPDATE SET
        name         = excluded.name,
        poster       = excluded.poster,
@@ -433,6 +453,7 @@ async function upsertProgress(env, userId, item) {
        ep_label     = excluded.ep_label,
        ep_total     = excluded.ep_total,
        source       = excluded.source,
+       kodik_json   = COALESCE(excluded.kodik_json, progress.kodik_json),
        -- Union of both sets, so a device that was offline never drops episodes
        -- another device already recorded.
        seen_json    = (SELECT json_group_array(value) FROM (
@@ -446,7 +467,7 @@ async function upsertProgress(env, userId, item) {
        updated_at   = excluded.updated_at
      WHERE excluded.updated_at >= progress.updated_at`)
     .bind(userId, item.id, item.name, item.poster, item.idx, item.quality, item.time, item.duration,
-          item.epLabel, item.epTotal, item.source, JSON.stringify(item.seen), item.ts)
+          item.epLabel, item.epTotal, item.source, JSON.stringify(item.seen), item.ts, item.kodik ? JSON.stringify(item.kodik) : null)
     .run();
 }
 

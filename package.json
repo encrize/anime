@@ -8,7 +8,10 @@
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 execute aniwired --local --file=./schema.sql",
     "db:remote": "wrangler d1 execute aniwired --remote --file=./schema.sql",
-    "secret": "wrangler secret put JWT_SECRET"
+    "secret": "wrangler secret put JWT_SECRET",
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/browser.cjs && node tests/sync-browser.cjs",
+    "check": "node --check public/app.js && node --check public/account.js && node --check public/player-state.js && node --check worker/worker.js"
   },
   "devDependencies": {
     "wrangler": "^4.20.0"

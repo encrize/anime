@@ -109,30 +109,43 @@
        Accuracy does not suffer: pause / seek / ended / beforeunload / pagehide
        all still flush immediately via pushProgress(item, true). */
     const SYNC_DEBOUNCE_MS = 25000;
-    let pushTimer = 0, pendingItem = null, failedQueue = [], lastPushedSig = '';
+    let pushTimer = 0, pendingItem = null, failedQueue = [];
+    const pendingWrites = new Map(), pushedSigs = new Map(), inFlight = new Map();
 
     // Identity of a snapshot for deduplication purposes.
     const progressSig = it => JSON.stringify([
-      it.id, it.idx, it.time, it.duration, (it.seen || []).length, it.quality, it.source,
+      it.id, it.idx, it.time, it.duration, it.quality, it.source,
+      it.kodik?.season, it.kodik?.translation, it.kodik?.link, it.kodik?.mal, it.epTotal, it.seen || [],
     ]);
 
     function pushProgress(item, immediate){
       if(!token || !item) return;
       pendingItem = item;
+      const id = String(item.id), previous = pendingWrites.get(id);
+      if(!previous || item.ts >= previous.ts) pendingWrites.set(id, item);
       const flush = () => {
         pushTimer = 0;
-        const it = pendingItem; pendingItem = null;
-        if(!it) return;
-        // Nothing actually moved since the last successful push: skip the write.
-        const sig = progressSig(it);
-        if(sig === lastPushedSig) return;
-        lastPushedSig = sig;
-        apiCall('/api/progress', { method:'PUT', body:{ item: it }, keepalive: !!immediate })
-          .catch(() => { lastPushedSig = ''; failedQueue.push(it); });
+        const authToken = token;
+        for(const [id, snapshot] of pendingWrites){
+          if(inFlight.has(id)) continue;
+          const sig = progressSig(snapshot);
+          if(pushedSigs.get(id) === sig){ pendingWrites.delete(id); continue; }
+          pendingWrites.delete(id); inFlight.set(id, sig);
+          apiCall('/api/progress', { method:'PUT', body:{ item:snapshot }, keepalive:!!immediate })
+            .then(() => { if(token === authToken) pushedSigs.set(id, sig); })
+            .catch(() => {
+              if(token !== authToken) return;
+              const newer = pendingWrites.get(id);
+              if(!newer || newer.ts < snapshot.ts) pendingWrites.set(id, snapshot);
+            })
+            .finally(() => {
+              inFlight.delete(id);
+              if(token && pendingWrites.size && !pushTimer) pushTimer = setTimeout(flush, SYNC_DEBOUNCE_MS);
+            });
+        }
       };
       if(immediate){ clearTimeout(pushTimer); pushTimer = 0; flush(); return; }
-      if(pushTimer) return;
-      pushTimer = setTimeout(flush, SYNC_DEBOUNCE_MS);
+      if(!pushTimer) pushTimer = setTimeout(flush, SYNC_DEBOUNCE_MS);
     }
 
     async function syncProgress(silent){
@@ -147,6 +160,8 @@
       for(const s of serverItems){
         s.id = String(s.id); seenIds[s.id] = true;
         const l = map[s.id];
+        if(l){ s.seen = [...new Set([...(l.seen || []), ...(s.seen || [])])].sort((a,b) => a-b); l.seen = s.seen;
+          if(!s.kodik && l.kodik) s.kodik = l.kodik; }
         if(!l || (l.ts||0) <= (s.ts||0)) map[s.id] = s;
         else toPush.push(l);
       }
@@ -165,20 +180,6 @@
 
     let lastPicked = null;                         // episode index chosen in the UI
 
-    function wrap(name, after){
-      const fn = window[name];
-      if(typeof fn !== 'function') return;
-      window[name] = function(){
-        if(typeof arguments[0] === 'number') lastPicked = arguments[0];
-        const out = fn.apply(this, arguments);
-        Promise.resolve(out).then(() => setTimeout(after, 100)).catch(() => setTimeout(after, 100));
-        return out;
-      };
-    }
-    wrap('selectEpisode', () => saveProgress());
-    wrap('playEpisode',   () => saveProgress());
-    wrap('loadKodik',     () => saveProgress());
-
     function playerIdx(){
       if(current.ep != null) return current.ep;
       if(lastPicked != null) return lastPicked;
@@ -186,7 +187,7 @@
     }
     function playerLive(){
       if(!current.title) return false;
-      if(current.mode === 'kodik') return !!current.kodikLink;
+      if(current.mode === 'kodik') return !!current.kodikLink && !el.embedWrap.classList.contains('hidden') && kodikState.key === String(current.title.id);
       return current.ep != null;
     }
 
@@ -219,14 +220,15 @@
     }
 
     saveProgress = function(){
-      if(!playerLive()) return;
+      if(!playerLive() || (current.mode !== 'kodik' && (current.libriaRestoring || el.playerWrap.classList.contains('hidden')))) return;
       const t     = current.title;
       const idx   = playerIdx();
       const ep    = (current.episodes || [])[idx];
       const kodik = current.mode === 'kodik';
       const v     = el.video;
       const prev  = readHistory()[String(t.id)];
-      const same  = !!(prev && prev.idx === idx);
+      const same  = !!(prev && prev.idx === idx && prev.source === current.mode && (!kodik || (prev.kodik?.season || null) === kodikState.season));
+      if(kodik && !kodikState.confirmed) return;
 
       // Only gate brand-new entries: a title already in the history keeps
       // updating normally, so resuming never loses your position.
@@ -235,10 +237,10 @@
       let time = (!kodik && v && isFinite(v.currentTime)) ? Math.floor(v.currentTime) : 0;
       let dur  = (!kodik && v && isFinite(v.duration))    ? Math.floor(v.duration)    : 0;
       if(kodik){
-        time = kodikState.time || (same ? (prev.time || 0) : 0);
+        time = kodikState.time;
         dur  = kodikState.duration || (same ? (prev.duration || 0) : 0);
       }
-      if(same && time < 3 && (prev.time || 0) > 3) time = prev.time;
+      if(!kodik && same && el.video.readyState === 0) return;
       if(!dur && same) dur = prev.duration || 0;
 
       const item = {
@@ -257,11 +259,12 @@
           same ? (prev.epTotal || 0) : 0),
         source: current.mode || 'libria',
         kodik: kodik
-          ? { mal:(current.malId ?? t._mal ?? null), link:(current.kodikLink || '') }
+          ? { mal:(current.malId ?? t._mal ?? null), link:AWPlayer.safeLink(current.kodikLink || ''), season:kodikState.season, translation:kodikState.translation }
           : (same ? prev.kodik : undefined),
         seen: [idx],
         ts: Date.now()
       };
+      if(prev && progressSig(prev) === progressSig(item)) return;
       putLocal(item);
       renderResume();
       markSeenEpisodes();
@@ -275,11 +278,11 @@
       const tick = () => { const now = Date.now(); if(now - last > 3000){ last = now; saveProgress(); } };
       if(v){
         v.addEventListener('timeupdate', tick);
-        v.addEventListener('loadedmetadata', () => saveProgress());
-        v.addEventListener('play',   () => saveProgress());
-        v.addEventListener('pause',  () => saveProgress());
-        v.addEventListener('seeked', () => saveProgress());
-        v.addEventListener('ended',  () => saveProgress());
+        v.addEventListener('loadedmetadata', () => { if(current.mode === 'libria') saveProgress(); });
+        v.addEventListener('play',   () => { if(current.mode === 'libria') saveProgress(); });
+        v.addEventListener('pause',  () => { if(current.mode === 'libria'){ saveProgress(); pushProgress(pendingItem, true); } });
+        v.addEventListener('seeked', () => { saveProgress(); pushProgress(pendingItem, true); });
+        v.addEventListener('ended',  () => { saveProgress(); pushProgress(pendingItem, true); });
       }
       setInterval(() => {
         if(document.visibilityState === 'visible' && playerLive()) saveProgress();
@@ -328,7 +331,47 @@
       });
     };
 
-    const kodikState = { time:0, duration:0 };
+    const kodikState = { key:'', idx:0, time:0, duration:0, season:null, translation:null, confirmed:false };
+    const CHECKPOINT_KEY = 'aw:kodik:checkpoints';
+    function checkpoints(){
+      try { return JSON.parse(localStorage.getItem(CHECKPOINT_KEY) || '{}') || {}; } catch(_) { return {}; }
+    }
+    function checkpoint(){
+      if(!current.title || current.mode !== 'kodik') return;
+      const map = checkpoints();
+      map[kodikState.key] = { idx:current.ep || 0, time:kodikState.time, duration:kodikState.duration,
+        kodik:{ mal:current.malId, season:kodikState.season, translation:kodikState.translation,
+          link:current.kodikLink ? AWPlayer.safeLink(withKodikEpisode(current.kodikLink)) : '' }, ts:Date.now() };
+      // Keep a bounded local selection cache even before the 30-second history threshold.
+      const entries = Object.entries(map).sort((a,b) => b[1].ts - a[1].ts).slice(0,200);
+      try { localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(Object.fromEntries(entries))); } catch(_) {}
+    }
+    function paintKodikSelection(){
+      $$('.ep', el.episodes).forEach(b => b.classList.toggle('active', +b.dataset.idx === current.ep));
+      const input = $('#kodikEp', el.episodes);
+      if(input) input.value = String((current.ep || 0) + 1);
+    }
+    function prepareKodik(t, resume){
+      const id = String(t.id), local = checkpoints()[id], hist = readHistory()[id];
+      const saved = local && (!hist || local.ts > hist.ts) ? local : hist;
+      const state = resume || saved || {};
+      const prefs = { ...(saved?.kodik || {}), ...(state.kodik || {}) };
+      Object.assign(kodikState, { key:id, idx:Math.max(0, Math.floor(state.idx || 0)),
+        time:Math.max(0, Math.floor(state.time || 0)), duration:state.duration || 0,
+        season:AWPlayer.positive(prefs.season), translation:AWPlayer.positive(prefs.translation), confirmed:false });
+      current.ep = kodikState.idx; lastPicked = current.ep; current.kodikState = kodikState;
+      // Reuse only validated player permalinks; find-player tokens are reacquired.
+      const link = prefs.link && AWPlayer.safeLink(prefs.link);
+      current.kodikLink = link && !new URL(link).pathname.includes('find-player') ? link : undefined;
+      if(prefs.mal != null) current.malId = prefs.mal;
+      renderKodikEpisodes(t);
+    }
+    window.__awPrepareKodik = prepareKodik;
+    window.__awEnsureKodik = t => {
+      if(t && (kodikState.key !== String(t.id) || current.kodikState !== kodikState)) prepareKodik(t);
+      else if(t){ current.ep = kodikState.idx; paintKodikSelection(); }
+    };
+    window.__awSetKodikEpisode = (i, time) => setKodikEpisode(i, time);
     let kodikSaveAt = 0;
 
     function isKodikId(id){ return /^al-/.test(String(id)); }
@@ -377,31 +420,21 @@
     }
 
     function setKodikEpisode(i, startFrom){
-      current.ep = i;
-      lastPicked = i;
-      kodikState.time = Math.floor(startFrom || 0);
-      kodikState.duration = 0;
-      if(current.kodikLink){
-        try{
-          const u = new URL(current.kodikLink, location.href);
-          u.searchParams.set('episode', String(i + 1));
-          if(startFrom && startFrom > 5) u.searchParams.set('start_from', String(Math.floor(startFrom)));
-          else u.searchParams.delete('start_from');
-          current.kodikLink = u.toString();
-          if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
-        }catch(_){}
-      }
-      $$('.ep', el.episodes).forEach(b => b.classList.toggle('active', +b.dataset.idx === i));
-      const inp = $('#kodikEp', el.episodes);
-      if(inp) inp.value = String(i + 1);
+      if(!Number.isInteger(i) || i < 0 || i >= 9999 || current.mode !== 'kodik') return;
       saveProgress();
-      markSeenEpisodes();
+      current.ep = i; lastPicked = i;
+      Object.assign(kodikState, { idx:i, time:Math.max(0, Math.floor(startFrom || 0)), duration:0, confirmed:false });
+      if(current.kodikLink){
+        current.kodikLink = withKodikEpisode(current.kodikLink);
+        if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
+      }
+      paintKodikSelection(); checkpoint(); markSeenEpisodes();
     }
 
     // Draws the episode grid only - it never touches the player, so it is safe
     // to call again once the real episode count arrives.
     function paintKodikEpisodes(total, startIdx){
-      let html = '<p class="hint">Pick the episode here so your progress is saved - dubs and subtitles are still switched inside the Kodik player.</p>';
+      let html = '<p class="hint">Episodes, dubs and subtitles sync with the Kodik player automatically.</p>';
       if(total > 0){
         html += '<div class="kodik-eps">';
         for(let i = 0; i < total; i++) html += '<button class="ep" data-idx="' + i + '" type="button">Episode ' + (i + 1) + '</button>';
@@ -426,10 +459,9 @@
       const id = String((t && t.id) || '');
       const hist = readHistory()[id] || {};
       const total = (t && t._eps) || hist.epTotal || 0;
-      const startIdx = (resume && resume.idx != null) ? resume.idx : (hist.idx != null ? hist.idx : 0);
+      const startIdx = current.ep != null ? current.ep : 0;
       paintKodikEpisodes(total, startIdx);
-      if(resume && (resume.idx != null || resume.time)) setKodikEpisode(resume.idx || 0, resume.time || 0);
-      else setKodikEpisode(startIdx, 0);
+      paintKodikSelection();
 
       // Kodik never says how many episodes it has and AniLibria only lists the
       // ones it dubbed, so ask AniList and repaint if the real number is bigger.
@@ -455,7 +487,7 @@
         if(!btn) return;
         const src = btn.dataset.src;
         setTimeout(() => {
-          if(src === 'kodik'){ renderKodikEpisodes(current.title); return; }
+          if(src === 'kodik' && current.mode === 'kodik'){ renderKodikEpisodes(current.title); return; }
           if(typeof window.renderEpisodes === 'function' && (current.episodes || []).length){
             window.renderEpisodes();
             $$('.ep', el.episodes).forEach(b => b.classList.toggle('active', +b.dataset.idx === current.ep));
@@ -465,38 +497,36 @@
       });
     }
 
-    /* Exact origin allowlist (audit S-9). The old substring test on /kodik/i
-       also accepted https://kodik.attacker.com and https://evil-kodik.io.
-       Keep this list in sync with frame-src in the worker's CSP. */
-    const KODIK_ORIGINS = new Set([
-      'https://kodikplayer.com',
-      'https://kodik.info',
-      'https://aniqit.com',
-    ]);
+    // Only the active iframe may mutate playback state. Unknown events are inert.
     window.addEventListener('message', e => {
-      if(!KODIK_ORIGINS.has(String(e.origin || ''))) return;
-      let d = e.data;
-      if(typeof d === 'string'){ try{ d = JSON.parse(d); }catch(_){ return; } }
-      if(!d || typeof d !== 'object') return;
-      const key = String(d.key || d.event || d.type || '').toLowerCase();
-      const val = (d.value !== undefined ? d.value : d.data);
-      const obj = (val && typeof val === 'object') ? val : {};
-      const num = x => { const n = parseFloat(x); return isFinite(n) ? n : null; };
-      if(/episode/.test(key)){
-        const n = num(obj.episode != null ? obj.episode : (obj.value != null ? obj.value : val));
-        if(n && n >= 1){ current.ep = Math.round(n) - 1; lastPicked = current.ep; kodikState.time = 0; }
+      if(current.mode !== 'kodik' || !current.title || !current.kodikLink ||
+         e.source !== el.embedFrame.contentWindow || !AWPlayer.trustedOrigin(e.origin)) return;
+      const event = AWPlayer.parseEvent(e.data);
+      if(!event) return;
+      if(/(?:pause|ended|seeked)$/.test(event.key)){ saveProgress(); pushProgress(pendingItem, true); return; }
+      const changedEpisode = event.episode != null && event.episode - 1 !== current.ep;
+      const changedSeason = event.season != null && event.season !== kodikState.season;
+      if(changedEpisode || changedSeason){
+        if(kodikState.confirmed) saveProgress();
+        current.ep = event.episode != null ? event.episode - 1 : 0;
+        Object.assign(kodikState, { idx:current.ep, time:0, duration:0 });
       }
-      if(/time|position|progress/.test(key)){
-        const tt = num(obj.time != null ? obj.time : (obj.currentTime != null ? obj.currentTime : val));
-        if(tt != null && tt >= 0) kodikState.time = Math.floor(tt);
-      }
-      if(/duration/.test(key)){
-        const dd = num(obj.duration != null ? obj.duration : val);
-        if(dd) kodikState.duration = Math.floor(dd);
-      }
-      if(current.mode === 'kodik'){
-        const now = Date.now();
-        if(now - kodikSaveAt > 3000){ kodikSaveAt = now; saveProgress(); }
+      if(event.season != null) kodikState.season = event.season;
+      if(event.translation != null) kodikState.translation = event.translation;
+      if(event.link) current.kodikLink = event.link;
+      if(event.time != null) kodikState.time = Math.floor(event.time);
+      if(event.duration != null) kodikState.duration = Math.floor(event.duration);
+      const meaningful = event.episode != null || event.season != null || event.translation != null ||
+        event.time != null || event.duration != null || event.link;
+      if(!meaningful) return;
+      // Update the stored URL without reloading a playing iframe.
+      current.kodikLink = withKodikEpisode(current.kodikLink);
+      kodikState.confirmed = true;
+      paintKodikSelection(); checkpoint();
+      const now = Date.now();
+      if(changedEpisode || changedSeason || event.translation != null || now - kodikSaveAt > 3000){
+        kodikSaveAt = now; saveProgress();
+        if(changedEpisode || changedSeason || event.translation != null) pushProgress(pendingItem, true);
       }
     });
 
@@ -507,7 +537,7 @@
       if(!t && !(d.kodik && d.kodik.mal != null)) t = await fetchAniListById(d.id);
       if(!t) t = kodikTitleFrom(d);
       if(!t._eps && d.epTotal) t._eps = d.epTotal;
-      return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0) });
+      return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0), duration:d.duration || 0, kodik:d.kodik });
     }
     function deleteItem(id){
       removeLocal(id);
@@ -517,7 +547,7 @@
     }
 
     window.addEventListener('pagehide', () => { saveProgress(); pushProgress(pendingItem || latestItem(readHistory()), true); });
-    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') saveProgress(); });
+    document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden'){ saveProgress(); pushProgress(pendingItem, true); } });
     window.addEventListener('online', () => { if(token) syncProgress(true); });
     window.addEventListener('storage', e => {
       if(e.key === HIST_KEY){ renderResume(); renderProfile(); refreshStats(); }
@@ -1519,6 +1549,9 @@
 
     const _openTitle = openTitle;
     openTitle = function(id, resume){
+      const saved = readHistory()[String(id)];
+      if(!resume && saved?.source === 'kodik') return resumeItem(saved);
+      if(!resume && saved) resume = { idx:saved.idx, time:saved.time, quality:saved.quality };
       pf.section.classList.add('hidden');
       hidePub();
       pushRoute(pathForTitle(id), { view:'title', id:String(id) });
@@ -1543,10 +1576,11 @@
           pushRoute(pathForTitle(t.id), { view:'title', id:String(t.id), kodik:true });
           document.title = titleName(t) + ' - AniWired';
         }
-        const p = _openKodik(t);
+        const p = _openKodik(t, resume);
         Promise.resolve(p)
           .then(() => {
-            kodikState.time = 0; kodikState.duration = 0; renderKodikEpisodes(t, resume);
+            if(current.title !== t) return;
+            renderKodikEpisodes(t);
             loadComments(String((t && t.id) || ''), t ? titleName(t) : '');
           })
           .catch(() => {});
@@ -1598,7 +1632,7 @@
               }
             });
           }
-          else _openTitle(id);
+          else openTitle(id);
         } else if(/^\/profile\/?$/.test(path)){
           showProfile();
         } else if(gm){
@@ -1626,8 +1660,8 @@
 
     window.addEventListener('popstate', () => { saveProgress(); applyRoute(); });
 
-    if(/^\/(title|profile|genre|u|top|random)\b/.test(location.pathname)) applyRoute();
-    else history.replaceState({ view:'home' }, '', location.pathname + location.search);
+    const initialPath = location.pathname;
+    if(!/^\/(title|profile|genre|u|top|random)\b/.test(initialPath)) history.replaceState({ view:'home' }, '', location.pathname + location.search);
 
     const ael = {
       back:$('#authBack'), close:$('#authClose'), guest:$('#authGuest'), userBox:$('#authUser'),
@@ -1640,6 +1674,7 @@
     let mode = 'login';
 
     function setToken(t){
+      if(token !== (t || '')){ clearTimeout(pushTimer); pushTimer = 0; pendingWrites.clear(); pushedSigs.clear(); pendingItem = null; }
       token = t || '';
       if(token) localStorage.setItem(TOKEN_KEY, token);
       else { localStorage.removeItem(TOKEN_KEY); user = null; }
@@ -1744,12 +1779,15 @@
           if(me.settings) settings = me.settings;
           renderAuthUI();
           await syncProgress(true);
-        }catch(_){ setToken(''); renderAuthUI(); }
+        }catch(_){ renderAuthUI(); /* A temporary network outage must not sign the user out. */ }
       } else {
         renderAuthUI();
       }
     }
-    bootSession();
+    bootSession().finally(() => {
+      // Resolve account history before restoring a deep link on a new device.
+      if(location.pathname === initialPath && !current.title && /^\/(title|profile|genre|u|top|random)\b/.test(initialPath)) applyRoute();
+    });
 
     /* QOL: keyboard shortcuts */
     document.addEventListener('keydown', e => {

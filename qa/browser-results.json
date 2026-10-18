@@ -1,0 +1,61 @@
+{
+  "checks": [
+    "delayed initialization restores ep14/dub/season/time",
+    "internal player next/dub event synchronizes UI and history",
+    "unrelated window cannot overwrite iframe state",
+    "site episode selection keeps dub and clears old time",
+    "reopen preserves selection even before playback",
+    "returning from another source keeps Kodik selection and UI consistent",
+    "out-of-order player lookup cannot replace a new title",
+    "deep-link reload loads assets and selection",
+    "detail layout fits 11 mobile/tablet/desktop widths",
+    "home layout fits 6 viewport widths"
+  ],
+  "layout": [
+    {
+      "width": 320,
+      "status": "pass"
+    },
+    {
+      "width": 360,
+      "status": "pass"
+    },
+    {
+      "width": 390,
+      "status": "pass"
+    },
+    {
+      "width": 430,
+      "status": "pass"
+    },
+    {
+      "width": 560,
+      "status": "pass"
+    },
+    {
+      "width": 768,
+      "status": "pass"
+    },
+    {
+      "width": 900,
+      "status": "pass"
+    },
+    {
+      "width": 1024,
+      "status": "pass"
+    },
+    {
+      "width": 1280,
+      "status": "pass"
+    },
+    {
+      "width": 1440,
+      "status": "pass"
+    },
+    {
+      "width": 1920,
+      "status": "pass"
+    }
+  ],
+  "pageErrors": []
+}

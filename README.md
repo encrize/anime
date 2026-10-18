@@ -7,6 +7,12 @@ accounts, cross-device watch-history sync, comments, and friends.
 > Private project: search indexing is disabled on purpose (`robots.txt`),
 > while messenger crawlers stay allowed so shared links unfold into cards.
 
+## Player / responsive fixes (v7)
+
+**Existing installations must run `migrate-v7.sql` once before deploying this Worker.**
+See [UPDATE-RU.md](UPDATE-RU.md) for upgrade steps, test results and limitations.
+Fresh databases use the updated `schema.sql` instead.
+
 ## Features
 
 - **Accounts and auth** - sign up with a username and password (no email).

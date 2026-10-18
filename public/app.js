@@ -32,6 +32,7 @@ const API  = 'https://anilibria.top/api/v1';
 
   /* state */
   let hls = null;
+  let titleRequest = 0, kodikRequest = 0, streamRequest = 0, streamReady = null;
   let current = { title:null, host:'', episodes:[], ep:null, quality:'fhd', mode:'libria', kodikLink:undefined, malId:undefined };
 
   const ICON = {
@@ -62,18 +63,20 @@ const API  = 'https://anilibria.top/api/v1';
     el.detail.classList.add('hidden');
     el.home.classList.remove('hidden');
     if(!keepPlayer){
+      saveProgress(); el.video.pause();
+      ++kodikRequest; ++titleRequest;
       teardownPlayer();
       el.embedWrap.classList.add('hidden');
       el.embedFrame.src = 'about:blank';
     }
     updateMiniReturn();
-    window.scrollTo({ top:0, behavior:'smooth' });
+    window.scrollTo({ top:0, behavior:'instant' });
   }
   function showDetail(){
     el.home.classList.add('hidden');
     el.detail.classList.remove('hidden');
     updateMiniReturn();
-    window.scrollTo({ top:0, behavior:'smooth' });
+    window.scrollTo({ top:0, behavior:'instant' });
   }
 
   function isPlayerLive(){
@@ -257,12 +260,17 @@ const API  = 'https://anilibria.top/api/v1';
 
   /* open a title detail */
   async function openTitle(id, resume){
+    const request = ++titleRequest; ++kodikRequest;
+    saveProgress(); teardownPlayer(); el.video.pause();
+    el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
+    current.title = null; current.ep = null; current.kodikLink = undefined;
     showDetail();
     el.playerWrap.classList.add('hidden');
     el.detailState.classList.remove('hidden');
     el.detailState.innerHTML = '<div class="spinner"></div>Loading…';
     try{
       const t = await getTitle(id);
+      if(request !== titleRequest) return;
       current.title = t;
       current.episodes = Array.isArray(t.episodes) ? t.episodes : [];
       current.kodikLink = undefined; current.malId = undefined; current.ep = null;
@@ -289,7 +297,7 @@ const API  = 'https://anilibria.top/api/v1';
 
       renderEpisodes(resume);
     }catch(e){
-      el.detailState.innerHTML = 'Loading error: ' + e.message;
+      if(request === titleRequest) el.detailState.textContent = 'Loading error: ' + e.message;
     }
   }
 
@@ -383,6 +391,7 @@ const API  = 'https://anilibria.top/api/v1';
   /* load + play a stream via hls.js */
   async function loadStream(url, seekTo){
     teardownPlayer();
+    const request = streamRequest;
     const v = el.video;
     // Safari plays HLS natively, so it never needs the library at all.
     if(!v.canPlayType('application/vnd.apple.mpegurl') && !window.Hls){
@@ -393,6 +402,7 @@ const API  = 'https://anilibria.top/api/v1';
         return;
       }
     }
+    if(request !== streamRequest || current.mode !== 'libria') return;
     if(v.canPlayType('application/vnd.apple.mpegurl')){
       v.src = url; // native HLS (Safari)
     } else if(window.Hls && Hls.isSupported()){
@@ -405,14 +415,20 @@ const API  = 'https://anilibria.top/api/v1';
       return;
     }
     const onReady = () => {
+      if(request !== streamRequest) return;
       if(seekTo) v.currentTime = seekTo;
+      current.libriaRestoring = false;
+      saveProgress();
       v.play().catch(()=>{});
       v.removeEventListener('loadedmetadata', onReady);
     };
-    v.addEventListener('loadedmetadata', onReady);
+    streamReady = onReady;
+    v.addEventListener('loadedmetadata', onReady, { once:true });
   }
 
   function teardownPlayer(){
+    ++streamRequest;
+    if(streamReady){ el.video.removeEventListener('loadedmetadata', streamReady); streamReady = null; }
     if(hls){ hls.destroy(); hls=null; }
     if(document.pictureInPictureElement){ document.exitPictureInPicture().catch(()=>{}); }
     if(typeof stopAmbient === 'function') stopAmbient(false);
@@ -445,8 +461,12 @@ const API  = 'https://anilibria.top/api/v1';
 
   /* play a specific episode */
   function playEpisode(idx, quality, seekTo){
+    saveProgress();
     const ep = current.episodes[idx];
     if(!ep) return;
+    el.video.pause();
+    current.libriaRestoring = true;
+    el.video.removeAttribute('src'); el.video.load();
     current.ep = idx;
     current.mode = 'libria';
     el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
@@ -468,17 +488,20 @@ const API  = 'https://anilibria.top/api/v1';
   el.qualitySel.onchange = () => {
     const ep = current.episodes[current.ep];
     const t = el.video.currentTime;
+    current.libriaRestoring = true;
     current.quality = el.qualitySel.value;
     loadStream(streamUrl(ep, current.quality), t);
     saveProgress();
   };
 
-  function selectEpisode(i){ current.mode === 'kodik' ? loadKodik() : playEpisode(i); }
+  function selectEpisode(i){ current.mode === 'kodik' && window.__awSetKodikEpisode ? window.__awSetKodikEpisode(i, 0) : playEpisode(i); }
 
   function setMode(mode){
+    if(current.mode !== mode) saveProgress();
     current.mode = mode;
     $$('.src-tab', el.sourceTabs).forEach(b => b.classList.toggle('active', b.dataset.src === mode));
-    if(mode === 'kodik'){ loadKodik(); return; }
+    if(mode === 'kodik') return loadKodik();
+    ++kodikRequest;
     el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
     if(current.ep != null) playEpisode(current.ep);
   }
@@ -501,9 +524,10 @@ const API  = 'https://anilibria.top/api/v1';
         body: JSON.stringify({ query:'query($s:String){Media(search:$s,type:ANIME){idMal}}', variables:{ s } })
       });
       const j = await r.json();
-      current.malId = (j.data && j.data.Media && j.data.Media.idMal) || null;
-    }catch(e){ current.malId = null; }
-    return current.malId;
+      const id = (j.data && j.data.Media && j.data.Media.idMal) || null;
+      if(current.title === t) current.malId = id;
+      return id;
+    }catch(e){ if(current.title === t) current.malId = null; return null; }
   }
 
   /* Neither source knows how many episodes a show really has: AniLibria lists
@@ -587,55 +611,44 @@ const API  = 'https://anilibria.top/api/v1';
     return results.find(x => x.translation && x.translation.type === 'subtitles') || results[0];
   }
 
-  /* Kodik's find-player opens the *latest* episode by default, which is an
-     instant spoiler on a title you have never watched. Pin episode 1 unless
-     the link already carries an episode (set by setKodikEpisode on resume). */
-  function withKodikEpisode(link, ep){
-    try{
-      const u = new URL(link, location.href);
-      if(!u.searchParams.get('episode')) u.searchParams.set('episode', String(ep || 1));
-      return u.toString();
-    }catch(_){ return link; }
+  /* Apply the selection at the moment the async player lookup completes. */
+  function withKodikEpisode(link){
+    return AWPlayer.playerUrl(link, current.kodikState || { idx:current.ep || 0, time:0 });
   }
 
   async function loadKodik(){
-    teardownPlayer();
+    const request = ++kodikRequest, title = current.title;
+    const valid = () => request === kodikRequest && current.title === title && current.mode === 'kodik';
+    if(window.__awEnsureKodik) window.__awEnsureKodik(title);
+    el.video.pause(); teardownPlayer();
     el.playerWrap.classList.add('hidden');
-    if(current.kodikLink){
-      current.kodikLink = withKodikEpisode(current.kodikLink);
+    const mount = link => {
+      if(!valid()) return;
+      current.kodikLink = withKodikEpisode(link);
       el.detailState.classList.add('hidden');
       el.embedWrap.classList.remove('hidden');
-      el.embedFrame.src = current.kodikLink;
-      return;
-    }
-    const token = await kodikToken();
-    if(!token){ askKodikToken(); return; }
-    el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
+      if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
+    };
+    if(current.kodikLink){ mount(current.kodikLink); return; }
     el.detailState.classList.remove('hidden');
     el.detailState.innerHTML = '<div class="spinner"></div>Searching Kodik…';
-
-    const malId = await resolveMalId(current.title);
-    if(malId){
-      current.kodikLink = withKodikEpisode(KODIK_PLAYER + '/find-player?shikimoriID=' + malId +
-        '&token=' + encodeURIComponent(token));
-      el.detailState.classList.add('hidden');
-      el.embedWrap.classList.remove('hidden');
-      el.embedFrame.src = current.kodikLink;
-      return;
-    }
-
     try{
-      const results = await searchKodik(token, current.title);
-      const hit = pickKodik(results);
-      if(!hit || !hit.link){ el.detailState.innerHTML = 'Nothing found in Kodik for this title.'; return; }
-      current.kodikLink = withKodikEpisode((hit.link.indexOf('//') === 0 ? 'https:' : '') + hit.link);
-      el.detailState.classList.add('hidden');
-      el.embedWrap.classList.remove('hidden');
-      el.embedFrame.src = current.kodikLink;
+      const token = await kodikToken();
+      if(!valid()) return;
+      if(!token){ askKodikToken(); return; }
+      const malId = await resolveMalId(title);
+      if(!valid()) return;
+      if(malId){
+        current.malId = malId;
+        mount(KODIK_PLAYER + '/find-player?shikimoriID=' + malId + '&token=' + encodeURIComponent(token));
+        return;
+      }
+      const hit = pickKodik(await searchKodik(token, title));
+      if(!valid()) return;
+      if(!hit || !hit.link){ el.detailState.textContent = 'Nothing found in Kodik for this title.'; return; }
+      mount((hit.link.indexOf('//') === 0 ? 'https:' : '') + hit.link);
     }catch(e){
-      el.detailState.innerHTML = 'Couldn\'t load the Kodik player by title: ' + escapeHtml(e.message) +
-        '<br><span class="hint">The title search runs through this site\'s own backend, so this is not a CORS problem. ' +
-        'Either Kodik has nothing for this title, or the Kodik token is missing - check /api/kodik/token.</span>';
+      if(valid()) el.detailState.textContent = 'Could not load Kodik: ' + e.message;
     }
   }
 
@@ -761,7 +774,9 @@ const API  = 'https://anilibria.top/api/v1';
     if(libria) libria.classList.toggle('hidden', !!kodikOnly);
   }
 
-  async function openKodikTitle(t){
+  async function openKodikTitle(t, resume){
+    ++titleRequest; ++kodikRequest;
+    saveProgress(); teardownPlayer(); el.video.pause();
     showDetail();
     el.playerWrap.classList.add('hidden');
     el.embedWrap.classList.add('hidden'); el.embedFrame.src = 'about:blank';
@@ -782,7 +797,9 @@ const API  = 'https://anilibria.top/api/v1';
     el.episodes.innerHTML = '<p class="hint">Episodes, dubs and subtitles are switched right inside the Kodik player below.</p>';
 
     setKodikOnlyTabs(true);
-    setMode('kodik');
+    current.mode = 'kodik';
+    if(window.__awPrepareKodik) window.__awPrepareKodik(t, resume);
+    return setMode('kodik');
   }
 
   /* Custom player controls */
@@ -1097,6 +1114,7 @@ const API  = 'https://anilibria.top/api/v1';
   el.miniReturn.onclick = () => { showDetail(); el.miniReturn.classList.remove('show'); };
   el.mrClose.onclick = e => {
     e.stopPropagation();
+    saveProgress(); ++kodikRequest; ++titleRequest;
     if(document.pictureInPictureElement){ document.exitPictureInPicture().catch(()=>{}); }
     teardownPlayer();
     el.video.pause(); el.video.removeAttribute('src'); el.video.load();
