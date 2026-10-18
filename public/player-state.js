@@ -27,6 +27,12 @@
     else u.searchParams.delete('start_from');
     return u.href;
   }
+  // Playback recency and preference recency are different clocks. A stale
+  // resume card must not override a more recent local translation choice.
+  function translationPreference(...snapshots){
+    return snapshots.filter(x => positive(x?.kodik?.translation))
+      .sort((a,b) => (b.kodik.translationTs || b.ts || 0) - (a.kodik.translationTs || a.ts || 0))[0]?.kodik || {};
+  }
   function parseEvent(raw){
     let d = raw;
     if(typeof d === 'string') { try { d = JSON.parse(d); } catch(_) { return null; } }
@@ -55,7 +61,7 @@
     }
     return out;
   }
-  const api = { trustedOrigin, positive, safeLink, playerUrl, parseEvent };
+  const api = { trustedOrigin, positive, safeLink, playerUrl, parseEvent, translationPreference };
   if(typeof module === 'object' && module.exports) module.exports = api;
   else root.AWPlayer = api;
 })(typeof window === 'object' ? window : globalThis);

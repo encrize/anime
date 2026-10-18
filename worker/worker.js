@@ -192,7 +192,8 @@ function normalizeKodik(raw) {
       u.searchParams.delete('token'); link = u.href.slice(0, 2000);
     }
   } catch(_) {}
-  return { mal:pos(raw.mal), season:pos(raw.season), translation:pos(raw.translation), link };
+  return { mal:pos(raw.mal), season:pos(raw.season), translation:pos(raw.translation),
+    translationTs:Number.isSafeInteger(Number(raw.translationTs)) && Number(raw.translationTs) > 0 ? Number(raw.translationTs) : 0, link };
 }
 
 function parseKodik(text) {
@@ -453,7 +454,13 @@ async function upsertProgress(env, userId, item) {
        ep_label     = excluded.ep_label,
        ep_total     = excluded.ep_total,
        source       = excluded.source,
-       kodik_json   = COALESCE(excluded.kodik_json, progress.kodik_json),
+       kodik_json   = CASE
+         WHEN COALESCE(json_extract(progress.kodik_json, '$.translationTs'), 0)
+            > COALESCE(json_extract(excluded.kodik_json, '$.translationTs'), 0)
+         THEN json_set(COALESCE(excluded.kodik_json, progress.kodik_json),
+           '$.translation', json_extract(progress.kodik_json, '$.translation'),
+           '$.translationTs', json_extract(progress.kodik_json, '$.translationTs'))
+         ELSE COALESCE(excluded.kodik_json, progress.kodik_json) END,
        -- Union of both sets, so a device that was offline never drops episodes
        -- another device already recorded.
        seen_json    = (SELECT json_group_array(value) FROM (
@@ -827,6 +834,11 @@ async function handleApi(request, env, url, ctx) {
     if (!tokens.length) return fail('Kodik token is unavailable', 502, 'kodik.no_token');
 
     const params = new URLSearchParams({ limit: '50' });
+    const translationId = String(url.searchParams.get('translationId') || '');
+    if(translationId){
+      if(!/^[1-9][0-9]{0,7}$/.test(translationId)) return fail('Invalid translationId', 400, 'kodik.bad_request');
+      params.set('translation_id', translationId);
+    }
     if (shikimoriId) params.set('shikimori_id', shikimoriId);
     else params.set('title', title);
 

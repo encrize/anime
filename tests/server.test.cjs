@@ -36,3 +36,8 @@ test('v7 migration preserves existing rows',async()=>{
 test('malicious or malformed player metadata is sanitized',()=>{
  assert.equal(h.normalizeKodik({link:'https://kodikplayer.com.evil.test/p',translation:'609junk'}).link,'');assert.equal(h.normalizeKodik({translation:-5}).translation,null);
 });
+test('new playback timestamp cannot overwrite a newer translation preference',async()=>{
+ const {db,env}=setup();const first=item(100);first.kodik.translation=777;first.kodik.translationTs=95;await h.upsertProgress(env,'u',first);
+ const next=item(200);next.kodik.translation=609;next.kodik.translationTs=50;next.time=1400;await h.upsertProgress(env,'u',next);
+ const saved=h.rowToItem(db.prepare('SELECT * FROM progress').get());assert.equal(saved.time,1400);assert.equal(saved.kodik.translation,777);assert.equal(saved.kodik.translationTs,95);db.close();
+});

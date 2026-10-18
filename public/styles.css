@@ -1142,3 +1142,22 @@ select.ui{min-width:0;max-width:100%;width:fit-content}
   .pl-btns{gap:2px}.pl-btns .spacer{display:none}#rewBtn,#fwdBtn{display:none}
   .hero-actions .btn{padding:10px 14px}
 }
+
+/* v7.1: left/right anchoring must not retain the desktop -50% translation. */
+@media(max-width:720px){
+  .mini-return{
+    left:max(12px,env(safe-area-inset-left));
+    right:max(12px,env(safe-area-inset-right));
+    width:auto;max-width:none;min-width:0;
+    bottom:max(16px,env(safe-area-inset-bottom));
+    transform:translateY(calc(100% + 80px));
+    gap:8px;padding:10px;box-sizing:border-box;
+  }
+  .mini-return.show{transform:translateY(0)}
+  .mini-return img{flex:0 0 36px}
+  .mini-return .mr-info{flex:1 1 0;min-width:0;overflow:hidden}
+  .mini-return .mr-info h5{max-width:none}
+  .mini-return .mr-info p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini-return .mr-go{flex:none;margin:0;padding:10px 8px;font-size:12px}
+  .mini-return .mr-close{flex:0 0 40px;width:40px;height:44px;display:grid;place-items:center;padding:0}
+}

@@ -21,6 +21,7 @@ const fs=require('node:fs');
    return r.fulfill({json:{ok:true}});
   }
   if(url.endsWith('/api/progress/bulk')){writes.push(...req.postDataJSON().items);return r.fulfill({json:{items:[]}});}
+  if(url.includes('/api/kodik/search')){const tr=Number(new URL(url).searchParams.get('translationId'));return r.fulfill({json:{results:[{link:'https://kodikplayer.com/serial/mock-'+tr+'/hash/720p',translation:{id:tr}}]}});}
   if(url.includes('/api/kodik/token')) return r.fulfill({json:{token:'test'}});
   if(url.includes('/api/')) return r.fulfill({json:{items:[],comments:[],users:[],friends:[]}});
   if(url.includes('graphql.anilist.co')) return r.fulfill({json:{data:{Media:{id:178789,idMal:123,title:{romaji:'Remote title'},episodes:24},Page:{media:[]}}}});
@@ -40,7 +41,7 @@ const fs=require('node:fs');
  await page.evaluate(()=>openKodikTitle({id:'al-2',_kodik:true,_mal:2,_eps:12,_epsTotal:12,name:{main:'Second remote title'},poster:{src:''}}));
  // A seeded history row avoids the intentionally preserved 30-second history threshold.
  await page.evaluate(()=>{const h=AniWired.readHistory();h['al-2']={id:'al-2',idx:0,source:'kodik',time:10,ts:1,seen:[0]};localStorage.setItem('aniwired:history',JSON.stringify(h))});
- await page.waitForTimeout(70);await send({key:'kodik_player_video_link',value:{episode:1,translation:{id:888}}});
+ await page.waitForTimeout(70);await send({key:'kodik_player_current_episode',value:{episode:1,translation:{id:888}}});
  await send({key:'kodik_player_time_update',value:45});await page.evaluate(()=>saveProgress());
  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new Event('visibilitychange'));});
  await page.waitForTimeout(180);

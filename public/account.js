@@ -115,7 +115,7 @@
     // Identity of a snapshot for deduplication purposes.
     const progressSig = it => JSON.stringify([
       it.id, it.idx, it.time, it.duration, it.quality, it.source,
-      it.kodik?.season, it.kodik?.translation, it.kodik?.link, it.kodik?.mal, it.epTotal, it.seen || [],
+      it.kodik?.season, it.kodik?.translation, it.kodik?.translationTs, it.kodik?.link, it.kodik?.mal, it.epTotal, it.seen || [],
     ]);
 
     function pushProgress(item, immediate){
@@ -127,8 +127,9 @@
         pushTimer = 0;
         const authToken = token;
         for(const [id, snapshot] of pendingWrites){
-          if(inFlight.has(id)) continue;
           const sig = progressSig(snapshot);
+          // A final, newer snapshot must not wait 25 seconds behind an older request.
+          if(inFlight.has(id) && (!immediate || inFlight.get(id) === sig)) continue;
           if(pushedSigs.get(id) === sig){ pendingWrites.delete(id); continue; }
           pendingWrites.delete(id); inFlight.set(id, sig);
           apiCall('/api/progress', { method:'PUT', body:{ item:snapshot }, keepalive:!!immediate })
@@ -139,7 +140,7 @@
               if(!newer || newer.ts < snapshot.ts) pendingWrites.set(id, snapshot);
             })
             .finally(() => {
-              inFlight.delete(id);
+              if(inFlight.get(id) === sig) inFlight.delete(id);
               if(token && pendingWrites.size && !pushTimer) pushTimer = setTimeout(flush, SYNC_DEBOUNCE_MS);
             });
         }
@@ -161,7 +162,10 @@
         s.id = String(s.id); seenIds[s.id] = true;
         const l = map[s.id];
         if(l){ s.seen = [...new Set([...(l.seen || []), ...(s.seen || [])])].sort((a,b) => a-b); l.seen = s.seen;
-          if(!s.kodik && l.kodik) s.kodik = l.kodik; }
+          const choice = AWPlayer.translationPreference(s, l);
+          const merged = { ...(l.kodik || {}), ...(s.kodik || {}) };
+          if(choice.translation){ merged.translation = choice.translation; merged.translationTs = choice.translationTs || 0; }
+          if(s.kodik || l.kodik){ s.kodik = merged; l.kodik = merged; } }
         if(!l || (l.ts||0) <= (s.ts||0)) map[s.id] = s;
         else toPush.push(l);
       }
@@ -259,9 +263,9 @@
           same ? (prev.epTotal || 0) : 0),
         source: current.mode || 'libria',
         kodik: kodik
-          ? { mal:(current.malId ?? t._mal ?? null), link:AWPlayer.safeLink(current.kodikLink || ''), season:kodikState.season, translation:kodikState.translation }
+          ? { mal:(current.malId ?? t._mal ?? null), link:AWPlayer.safeLink(current.kodikLink || ''), season:kodikState.season, translation:kodikState.translation, translationTs:kodikState.translationTs }
           : (same ? prev.kodik : undefined),
-        seen: [idx],
+        seen: [...new Set([...(prev?.seen || []), idx])].sort((a,b) => a-b),
         ts: Date.now()
       };
       if(prev && progressSig(prev) === progressSig(item)) return;
@@ -331,7 +335,7 @@
       });
     };
 
-    const kodikState = { key:'', idx:0, time:0, duration:0, season:null, translation:null, confirmed:false };
+    const kodikState = { key:'', idx:0, time:0, duration:0, season:null, translation:null, translationTs:0, resolvedTranslation:null, confirmed:false };
     const CHECKPOINT_KEY = 'aw:kodik:checkpoints';
     function checkpoints(){
       try { return JSON.parse(localStorage.getItem(CHECKPOINT_KEY) || '{}') || {}; } catch(_) { return {}; }
@@ -340,7 +344,7 @@
       if(!current.title || current.mode !== 'kodik') return;
       const map = checkpoints();
       map[kodikState.key] = { idx:current.ep || 0, time:kodikState.time, duration:kodikState.duration,
-        kodik:{ mal:current.malId, season:kodikState.season, translation:kodikState.translation,
+        kodik:{ mal:current.malId, season:kodikState.season, translation:kodikState.translation, translationTs:kodikState.translationTs,
           link:current.kodikLink ? AWPlayer.safeLink(withKodikEpisode(current.kodikLink)) : '' }, ts:Date.now() };
       // Keep a bounded local selection cache even before the 30-second history threshold.
       const entries = Object.entries(map).sort((a,b) => b[1].ts - a[1].ts).slice(0,200);
@@ -356,9 +360,11 @@
       const saved = local && (!hist || local.ts > hist.ts) ? local : hist;
       const state = resume || saved || {};
       const prefs = { ...(saved?.kodik || {}), ...(state.kodik || {}) };
+      const choice = AWPlayer.translationPreference(local, hist, resume);
+      if(choice.translation){ prefs.translation = choice.translation; prefs.translationTs = choice.translationTs || 0; }
       Object.assign(kodikState, { key:id, idx:Math.max(0, Math.floor(state.idx || 0)),
         time:Math.max(0, Math.floor(state.time || 0)), duration:state.duration || 0,
-        season:AWPlayer.positive(prefs.season), translation:AWPlayer.positive(prefs.translation), confirmed:false });
+        season:AWPlayer.positive(prefs.season), translation:AWPlayer.positive(prefs.translation), translationTs:prefs.translationTs || 0, resolvedTranslation:null, confirmed:false });
       current.ep = kodikState.idx; lastPicked = current.ep; current.kodikState = kodikState;
       // Reuse only validated player permalinks; find-player tokens are reacquired.
       const link = prefs.link && AWPlayer.safeLink(prefs.link);
@@ -424,6 +430,10 @@
       saveProgress();
       current.ep = i; lastPicked = i;
       Object.assign(kodikState, { idx:i, time:Math.max(0, Math.floor(startFrom || 0)), duration:0, confirmed:false });
+      if(kodikState.translation && kodikState.resolvedTranslation !== kodikState.translation){
+        paintKodikSelection(); checkpoint(); markSeenEpisodes();
+        window.loadKodik(); return;
+      }
       if(current.kodikLink){
         current.kodikLink = withKodikEpisode(current.kodikLink);
         if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
@@ -499,7 +509,7 @@
 
     // Only the active iframe may mutate playback state. Unknown events are inert.
     window.addEventListener('message', e => {
-      if(current.mode !== 'kodik' || !current.title || !current.kodikLink ||
+      if(current.mode !== 'kodik' || current.kodikResolving || !current.title || !current.kodikLink ||
          e.source !== el.embedFrame.contentWindow || !AWPlayer.trustedOrigin(e.origin)) return;
       const event = AWPlayer.parseEvent(e.data);
       if(!event) return;
@@ -512,7 +522,10 @@
         Object.assign(kodikState, { idx:current.ep, time:0, duration:0 });
       }
       if(event.season != null) kodikState.season = event.season;
-      if(event.translation != null) kodikState.translation = event.translation;
+      if(event.translation != null && (event.translation !== kodikState.translation || !kodikState.translationTs)){
+        kodikState.translation = event.translation;
+        kodikState.translationTs = Math.max(Date.now(), (kodikState.translationTs || 0) + 1);
+      }
       if(event.link) current.kodikLink = event.link;
       if(event.time != null) kodikState.time = Math.floor(event.time);
       if(event.duration != null) kodikState.duration = Math.floor(event.duration);
@@ -537,7 +550,7 @@
       if(!t && !(d.kodik && d.kodik.mal != null)) t = await fetchAniListById(d.id);
       if(!t) t = kodikTitleFrom(d);
       if(!t._eps && d.epTotal) t._eps = d.epTotal;
-      return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0), duration:d.duration || 0, kodik:d.kodik });
+      return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0), duration:d.duration || 0, kodik:d.kodik, ts:d.ts });
     }
     function deleteItem(id){
       removeLocal(id);

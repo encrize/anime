@@ -593,9 +593,10 @@ const API  = 'https://anilibria.top/api/v1';
   /* Goes through our own Worker instead of kodikapi.com directly: that host
      sends no CORS headers, so the direct call always failed with a bare
      "NetworkError" and no public CORS proxy is needed any more. */
-  async function searchKodik(token, t){
+  async function searchKodik(token, t, options = {}){
     const name = (t.name && (t.name.english || t.name.main)) || t.alias || titleName(t);
-    const params = new URLSearchParams({ title: name });
+    const params = new URLSearchParams(options.malId ? { shikimoriId:String(options.malId) } : { title:name });
+    if(options.translation) params.set('translationId', String(options.translation));
     const r = await fetch(KODIK_PROXY + '/search?' + params.toString());
     if(!r.ok){
       let msg = 'Kodik ' + r.status;
@@ -616,6 +617,7 @@ const API  = 'https://anilibria.top/api/v1';
     return AWPlayer.playerUrl(link, current.kodikState || { idx:current.ep || 0, time:0 });
   }
 
+  const kodikTranslationLinks = new Map();
   async function loadKodik(){
     const request = ++kodikRequest, title = current.title;
     const valid = () => request === kodikRequest && current.title === title && current.mode === 'kodik';
@@ -625,14 +627,37 @@ const API  = 'https://anilibria.top/api/v1';
     const mount = link => {
       if(!valid()) return;
       current.kodikLink = withKodikEpisode(link);
+      current.kodikResolving = false;
       el.detailState.classList.add('hidden');
       el.embedWrap.classList.remove('hidden');
       if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
     };
-    if(current.kodikLink){ mount(current.kodikLink); return; }
+    const preferred = current.kodikState?.translation;
+    if(current.kodikLink && (!preferred || current.kodikState.resolvedTranslation === preferred)){ mount(current.kodikLink); return; }
+    current.kodikResolving = true;
+    el.embedWrap.classList.add('hidden');
+    el.embedFrame.src = 'about:blank';
     el.detailState.classList.remove('hidden');
     el.detailState.innerHTML = '<div class="spinner"></div>Searching Kodik…';
     try{
+      // Resolve a concrete media link for the selected translation, rather
+      // than assuming a query parameter changes an already-bound media URL.
+      if(preferred){
+        const cacheKey = String(title.id) + ':' + preferred;
+        let link = kodikTranslationLinks.get(cacheKey);
+        if(!link){
+          const malId = await resolveMalId(title);
+          if(!valid()) return;
+          const results = await searchKodik(null, title, { malId, translation:preferred });
+          if(!valid()) return;
+          const hit = results.find(x => Number(x.translation?.id) === preferred && AWPlayer.safeLink(x.link));
+          if(!hit) throw new Error('Saved dub is unavailable. Your choice has been kept; retry when it is available.');
+          link = AWPlayer.safeLink(hit.link);
+          kodikTranslationLinks.set(cacheKey, link);
+        }
+        current.kodikState.resolvedTranslation = preferred;
+        mount(link); return;
+      }
       const token = await kodikToken();
       if(!valid()) return;
       if(!token){ askKodikToken(); return; }
@@ -648,7 +673,12 @@ const API  = 'https://anilibria.top/api/v1';
       if(!hit || !hit.link){ el.detailState.textContent = 'Nothing found in Kodik for this title.'; return; }
       mount((hit.link.indexOf('//') === 0 ? 'https:' : '') + hit.link);
     }catch(e){
-      if(valid()) el.detailState.textContent = 'Could not load Kodik: ' + e.message;
+      if(valid()){
+        el.embedWrap.classList.add('hidden');
+        el.detailState.textContent = 'Could not load Kodik: ' + e.message + ' ';
+        const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'src-tab'; retry.textContent = 'Retry player';
+        retry.onclick = () => loadKodik(); el.detailState.appendChild(retry);
+      }
     }
   }
 

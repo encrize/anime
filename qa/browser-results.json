@@ -6,9 +6,12 @@
     "site episode selection keeps dub and clears old time",
     "reopen preserves selection even before playback",
     "returning from another source keeps Kodik selection and UI consistent",
+    "stale explicit resume card cannot replace the latest dub",
+    "missing preferred dub never silently falls back and Retry restores exact link",
     "out-of-order player lookup cannot replace a new title",
     "deep-link reload loads assets and selection",
     "detail layout fits 11 mobile/tablet/desktop widths",
+    "floating Return panel and both actions fit 6 narrow viewports",
     "home layout fits 6 viewport widths"
   ],
   "layout": [
