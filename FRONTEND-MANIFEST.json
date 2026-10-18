@@ -1,0 +1,30 @@
+{
+  "baseline": "Phase 1",
+  "files": [
+    {
+      "path": "public/account.js",
+      "sha256": "ed3e6888763f6a15b2702a22e5427a14dc8c842c1d859bca08959bd3e919cb73",
+      "new": false
+    },
+    {
+      "path": "public/app.js",
+      "sha256": "785d7dd5b9f5c3eecf33de13be4c79c5cd835181252c928240b5b5ffd2c1a1a0",
+      "new": false
+    },
+    {
+      "path": "public/index.html",
+      "sha256": "6df499e459517d119a7a416ee5eefdb67005ffc4d3d00fd4bd2be966e096cec1",
+      "new": false
+    },
+    {
+      "path": "public/player-state.js",
+      "sha256": "00999d9cd68862468b406654295b232d08bca95322eb20bd25feb5c9383323b6",
+      "new": false
+    },
+    {
+      "path": "public/styles.css",
+      "sha256": "961e89e33d65639a3793d431c1eb047438b91ef6a482b672c008f1f27393c52c",
+      "new": false
+    }
+  ]
+}

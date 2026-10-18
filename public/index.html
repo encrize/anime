@@ -32,7 +32,7 @@
 <link rel="dns-prefetch" href="https://s4.anilist.co" />
 <link rel="dns-prefetch" href="https://image.tmdb.org" />
 <link rel="dns-prefetch" href="https://kodikplayer.com" />
-<link rel="stylesheet" href="/styles.css?v=7.1">
+<link rel="stylesheet" href="/styles.css">
   <base href="/">
 </head>
 <body>
@@ -40,15 +40,15 @@
     <div class="bar">
       <div class="logo" id="logoBtn" title="Home" role="button" tabindex="0"><b>AniWired</b></div>
       <nav class="nav">
-        <a class="nav-link active" id="navHome">Home</a>
+        <a class="nav-link active" id="navHome" role="button" tabindex="0">Home</a>
         <a class="nav-link" id="navTop" title="Top 100 anime (T)" role="button" tabindex="0">Top 100</a>
         <a class="nav-link" id="navRandom" title="Open a random title (R)" role="button" tabindex="0">Random</a>
-        <a class="nav-link" id="navProfile" title="Watch history (U)" role="button" tabindex="0">My list</a>
+        <a class="nav-link" id="navProfile" title="My list and watch history (U)" role="button" tabindex="0">My list</a>
         <a class="nav-link acct" id="navAuth" title="Sign in to sync your history" role="button" tabindex="0">Sign in</a>
       </nav>
       <div class="search">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input id="searchInput" type="search" placeholder="Search anime by title…" autocomplete="off" />
+        <input id="searchInput" aria-label="Search anime by title" type="search" placeholder="Search anime by title…" autocomplete="off" />
       </div>
     </div>
   </header>
@@ -58,7 +58,7 @@
     <section id="home">
       <div class="tmdb-bar hidden" id="tmdbBar">
         <p>🎬 HD banner artwork via TMDB. Paste a free API key (v3) - it is saved locally. <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Where to get it?</a></p>
-        <input id="tmdbInput" type="text" placeholder="TMDB API key (v3)" autocomplete="off" spellcheck="false" />
+        <input id="tmdbInput" aria-label="TMDB API key" type="text" placeholder="TMDB API key (v3)" autocomplete="off" spellcheck="false" />
         <button class="btn btn-primary" id="tmdbSave">Save</button>
         <button class="mr-close" id="tmdbDismiss" title="Hide">✕</button>
       </div>
@@ -82,6 +82,16 @@
         <div class="hero-dots" id="heroDots"></div>
       </section>
 
+      <details class="catalog-filters" id="catalogFilters">
+        <summary>Catalog filters</summary>
+        <div class="catalog-fields">
+          <label>Year <input class="ui" id="cfYear" type="number" min="1900" max="2100" placeholder="Any" /></label>
+          <label>Format <select class="ui" id="cfFormat"><option value="">Any</option><option value="TV,TV_SHORT,ONA">Series</option><option value="MOVIE">Movie</option><option value="OVA">OVA</option><option value="SPECIAL">Special</option></select></label>
+          <label>Release status <select class="ui" id="cfStatus"><option value="">Any</option><option value="RELEASING">Airing</option><option value="FINISHED">Finished</option><option value="NOT_YET_RELEASED">Not yet released</option><option value="HIATUS">On hiatus</option><option value="CANCELLED">Cancelled</option></select></label>
+          <label>Sort <select class="ui" id="cfSort"><option value="POPULARITY_DESC">Popularity</option><option value="SCORE_DESC">Rating</option><option value="START_DATE_DESC">Newest first</option><option value="TITLE_ROMAJI">Title A–Z</option></select></label>
+          <button class="acc-btn" id="cfReset" type="button">Reset filters</button>
+        </div>
+      </details>
       <div class="genre-bar" id="genreBar"></div>
       <div class="genre-bar hidden" id="topBar"></div>
 
@@ -90,6 +100,7 @@
         <div class="rail-arrows"><button class="rail-arrow" id="railPrev" aria-label="Previous">‹</button><button class="rail-arrow" id="railNext" aria-label="Next">›</button></div>
       </div>
       <div id="results" class="rail"></div>
+      <button class="acc-btn hidden" id="cfMore" type="button">Load more</button>
       <div id="homeState" class="state hidden"></div>
     </section>
 
@@ -103,7 +114,7 @@
       </div>
 
       <div class="embed-wrap hidden" id="embedWrap">
-        <iframe id="embedFrame" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen webkitallowfullscreen mozallowfullscreen referrerpolicy="origin"
+        <iframe id="embedFrame" title="Anime video player" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen webkitallowfullscreen mozallowfullscreen referrerpolicy="origin"
           sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-pointer-lock allow-orientation-lock"></iframe>
       </div>
 
@@ -112,20 +123,20 @@
         <div class="player-wrap hidden" id="playerWrap">
         <video id="video" playsinline></video>
         <div class="pl-controls">
-          <input id="timeline" class="timeline" type="range" min="0" max="100" value="0" step="0.1" />
+          <input id="timeline" aria-label="Playback position" class="timeline" type="range" min="0" max="100" value="0" step="0.1" />
           <div class="pl-btns">
             <button class="iconbtn" id="rewBtn" title="−10s"></button>
             <button class="iconbtn" id="playBtn" title="Play/Pause"></button>
             <button class="iconbtn" id="fwdBtn" title="+10s"></button>
             <div class="vol">
               <button class="iconbtn" id="muteBtn" title="Mute"></button>
-              <input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
+              <input id="volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value="1" />
             </div>
             <span class="time" id="timeLabel">0:00 / 0:00</span>
             <span class="spacer"></span>
             <button class="iconbtn" id="ambientBtn" title="Ambient Light"></button>
             <button class="iconbtn" id="subBtn" title="Subtitles">CC</button>
-            <select id="qualitySel" class="pl-select" title="Quality"></select>
+            <select id="qualitySel" aria-label="Video quality" class="pl-select" title="Quality"></select>
             <button class="iconbtn" id="pipBtn" title="Picture-in-Picture (P)"></button>
             <button class="iconbtn" id="fsBtn" title="Fullscreen"></button>
           </div>
@@ -138,13 +149,14 @@
         <div>
           <h1 id="dTitle"></h1>
           <div class="sub" id="dSub"></div>
+          <label class="list-picker">My list <select class="ui" id="watchStatus" aria-label="Title status in My list"></select></label>
           <div class="chips" id="dChips"></div>
           <p class="desc" id="dDesc"></p>
 
           <div class="controls-row">
             <div class="field">
               <label>Dub / Team</label>
-              <select id="teamSel" class="ui"></select>
+              <select id="teamSel" aria-label="Dub or team" class="ui"></select>
             </div>
           </div>
 
@@ -157,6 +169,7 @@
         <div class="cm-form">
           <textarea id="cmInput" rows="3" maxlength="1000" placeholder="Share your thoughts about this title…"></textarea>
           <div class="cm-actions">
+            <label class="spoiler-check"><input id="cmSpoiler" type="checkbox" /> Contains spoilers</label>
             <span class="cm-hint" id="cmHint"></span>
             <button class="btn btn-primary" id="cmSend" type="button">Post</button>
           </div>
@@ -222,10 +235,16 @@
         </div>
       </div>
 
+      <div class="list-tabs" role="group" aria-label="My list sections">
+        <button class="acc-btn" id="pfSavedTab" aria-pressed="true" type="button">My list</button>
+        <button class="acc-btn" id="pfHistoryTab" aria-pressed="false" type="button">Watch history</button>
+        <select class="ui" id="pfStatusFilter" aria-label="Filter My list by status"></select>
+        <span id="listSyncNote" role="status"></span>
+      </div>
       <div class="pf-toolbar">
         <div class="pf-search">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-          <input id="pfFilter" type="search" placeholder="Filter your history…" autocomplete="off" />
+          <input id="pfFilter" aria-label="Filter watch history" type="search" placeholder="Filter your history…" autocomplete="off" />
         </div>
         <select class="pf-sort" id="pfSort" title="Sort">
           <option value="recent">Recently watched</option>
@@ -233,6 +252,22 @@
           <option value="title">Title A-Z</option>
         </select>
         <button class="pf-clear" id="pfClear" type="button">Clear history</button>
+      </div>
+
+      <div class="pf-grid" id="pfGrid"></div>
+      <div class="pf-empty hidden" id="pfEmpty">
+        <b>Nothing here yet</b>
+        <p>Save titles to My list, or open Watch history to resume playback.</p>
+      </div>
+
+      <div class="pf-acc hidden" id="pfLocalImport">
+        <h3>Local history from this device</h3>
+        <p class="acc-hint">Old and guest records are not assigned to an account automatically. Only import records that belong to you, especially on a shared device.</p>
+        <div class="acc-row">
+          <button class="acc-btn hidden" id="importGuest" type="button">Import guest history</button>
+          <button class="acc-btn hidden" id="importLegacy" type="button">Import pre-update history</button>
+          <button class="acc-btn hidden" id="exportLegacy" type="button">Download pre-update backup</button>
+        </div>
       </div>
 
       <div class="pf-privacy hidden" id="pfPrivacy">
@@ -255,8 +290,8 @@
 
         <h4>Change password</h4>
         <form class="acc-form" id="accPwdForm" autocomplete="off">
-          <input type="password" id="accCurrent" placeholder="Current password" autocomplete="current-password" />
-          <input type="password" id="accNew" placeholder="New password (10+ characters)" autocomplete="new-password" minlength="10" />
+          <input type="password" id="accCurrent" aria-label="Current password" placeholder="Current password" autocomplete="current-password" />
+          <input type="password" id="accNew" aria-label="New password" placeholder="New password (10+ characters)" autocomplete="new-password" minlength="10" />
           <button class="acc-btn" id="accPwdBtn" type="submit">Change password</button>
         </form>
         <p class="acc-msg" id="accPwdMsg"></p>
@@ -275,7 +310,7 @@
         <h4>Delete account</h4>
         <p class="acc-hint">This removes your account, watch history, comments and follows. It cannot be undone.</p>
         <form class="acc-form" id="accDelForm" autocomplete="off">
-          <input type="password" id="accDelPwd" placeholder="Confirm with your password" autocomplete="current-password" />
+          <input type="password" id="accDelPwd" aria-label="Confirm account deletion with your password" placeholder="Confirm with your password" autocomplete="current-password" />
           <button class="acc-btn danger" id="accDelBtn" type="submit">Delete my account</button>
         </form>
         <p class="acc-msg" id="accDelMsg"></p>
@@ -294,11 +329,6 @@
         <p class="fl-empty hidden" id="flEmpty"></p>
       </section>
 
-      <div class="pf-grid" id="pfGrid"></div>
-      <div class="pf-empty hidden" id="pfEmpty">
-        <b>Nothing here yet</b>
-        Start watching a title and it will show up here with the exact episode and timecode.
-      </div>
     </section>
   </main>
 
@@ -308,16 +338,16 @@
       <h5 id="mrTitle"></h5>
       <p id="mrSub">▶ still playing</p>
     </div>
-    <span class="mr-go">Return</span>
-    <button class="mr-close" id="mrClose" title="Close and stop">✕</button>
+    <button class="mr-go" id="mrReturn" type="button" aria-label="Return to current playback">Return</button>
+    <button class="mr-close" id="mrClose" aria-label="Stop playback and close panel" title="Close and stop"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
   </div>
 
 
   <div class="modal-back" id="authBack" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-    <div class="auth-modal" id="authModal">
+    <div class="auth-modal" id="authModal" tabindex="-1">
       <div class="auth-head">
         <h3 id="authTitle">Sign in</h3>
-        <button class="auth-x" id="authClose" type="button" title="Close" aria-label="Close">✕</button>
+        <button class="auth-x" id="authClose" type="button" title="Close" aria-label="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
       <p class="auth-sub" id="authSub">Sync your watch history across every device.</p>
 
@@ -343,8 +373,8 @@
           </p>
           <button class="auth-submit" id="authSubmit" type="submit">Sign in</button>
         </form>
-        <p class="auth-msg" id="authMsg"></p>
-        <p class="auth-foot">3-20 characters: letters, digits, <b>_</b> <b>.</b> <b>-</b>. Progress saved on this device is merged into your account on first sign-in.</p>
+        <p class="auth-msg" id="authMsg" role="status"></p>
+        <p class="auth-foot">3-20 characters: letters, digits, <b>_</b> <b>.</b> <b>-</b>. Guest and pre-update history are not imported automatically. Import only your own records from My list.</p>
       </div>
 
       <div id="authUser" class="hidden">
@@ -358,7 +388,7 @@
           <div><b id="authStatTime">0h</b><span>Watched</span></div>
         </div>
         <div class="auth-actions">
-          <button class="auth-ghost" id="authProfile" type="button">My history</button>
+          <button class="auth-ghost" id="authProfile" type="button">My list</button>
           <button class="auth-ghost danger" id="authLogout" type="button">Sign out</button>
         </div>
       </div>
@@ -375,9 +405,9 @@
        the CSP when you get a chance:
          curl -sSL https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js \
               -o public/vendor/hls.min.js -->
-  <script src="/player-state.js?v=7.1"></script>
-  <script src="/app.js?v=7.1"></script>
+  <script src="/player-state.js"></script>
+  <script src="/app.js"></script>
 
-  <script src="/account.js?v=7.1"></script>
+  <script src="/account.js"></script>
 </body>
 </html>

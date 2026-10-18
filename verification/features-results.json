@@ -1,0 +1,13 @@
+{
+  "checks": [
+    "guest can plan from catalog without playback; statuses and status filter work",
+    "guest list persists and is never silently assigned to an account",
+    "signed-in list syncs, restores from server and durable offline edits retry on reconnect",
+    "spoilers start hidden on title and public profile; composer sends flag",
+    "history undo hides immediately, sends no DELETE, survives reload",
+    "multiple history deletions commit only after the six-second grace period",
+    "year, format, release, sort, genre, search and pagination reach the remote catalog",
+    "reset clears filters; mobile filters collapse; no horizontal overflow"
+  ],
+  "pageErrors": []
+}

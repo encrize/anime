@@ -2,7 +2,8 @@
 -- AniWired - Cloudflare D1 schema
 -- Apply locally : npx wrangler d1 execute aniwired --local  --file=./schema.sql
 -- Apply remote  : npx wrangler d1 execute aniwired --remote --file=./schema.sql
--- The script is idempotent, it is safe to run it again after an update.
+-- Fresh installations only. CREATE IF NOT EXISTS does not upgrade columns.
+-- Existing installations: inspect the schema and follow UPDATE-RU.md.
 -- =====================================================================
 
 PRAGMA foreign_keys = ON;
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS comments (
   anime_id    TEXT NOT NULL,
   anime_name  TEXT NOT NULL DEFAULT '',    -- denormalised, used on the public profile
   user_id     TEXT NOT NULL,
+  spoiler     INTEGER NOT NULL DEFAULT 0 CHECK (spoiler IN (0, 1)),
   body        TEXT NOT NULL,               -- 1-1000 chars
   created_at  INTEGER NOT NULL,            -- ms epoch
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -98,3 +100,15 @@ CREATE INDEX IF NOT EXISTS idx_auth_attempts_reset ON auth_attempts (reset_at);
 -- Housekeeping, run occasionally so stale keys do not accumulate:
 --   npx wrangler d1 execute aniwired --remote \
 --     --command "DELETE FROM auth_attempts WHERE reset_at < unixepoch()*1000"
+
+CREATE TABLE IF NOT EXISTS watchlist (
+  user_id TEXT NOT NULL,
+  anime_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  poster TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('planned','watching','completed','on_hold','dropped','removed')),
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, anime_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_watchlist_user_updated ON watchlist(user_id, updated_at DESC);

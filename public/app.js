@@ -32,6 +32,7 @@ const API  = 'https://anilibria.top/api/v1';
 
   /* state */
   let hls = null;
+  let catalogGeneration = 0;
   let titleRequest = 0, kodikRequest = 0, streamRequest = 0, streamReady = null;
   let current = { title:null, host:'', episodes:[], ep:null, quality:'fhd', mode:'libria', kodikLink:undefined, malId:undefined };
 
@@ -73,6 +74,8 @@ const API  = 'https://anilibria.top/api/v1';
     window.scrollTo({ top:0, behavior:'instant' });
   }
   function showDetail(){
+    document.querySelector('#cfMore')?.classList.add('hidden');
+    ++catalogGeneration;
     el.home.classList.add('hidden');
     el.detail.classList.remove('hidden');
     updateMiniReturn();
@@ -242,17 +245,33 @@ const API  = 'https://anilibria.top/api/v1';
 
   /* render results grid */
   function renderResults(list){
+    if(window.__awCatalogRendered) window.__awCatalogRendered();
     el.results.innerHTML = '';
     if(!list.length){ el.results.innerHTML = '<p class="hint">Nothing found.</p>'; return; }
     const frag = document.createDocumentFragment();
     for(const t of list){
-      const c = document.createElement('div');
+      const c = document.createElement('article');
       c.className = 'card';
-      c.innerHTML =
-        '<span class="thumb" style="background-image:url(' + posterUrl(t) + ')"></span>' +
-        '<div class="meta"><h3>' + escapeHtml(titleName(t)) + '</h3>' +
-        '<span>' + (t.type ? (t.type.description || t.type.value || '') : '') + (releaseYear(t) ? ' • ' + releaseYear(t) : '') + '</span></div>';
-      c.onclick = () => t._kodik ? openKodikTitle(t) : openTitle(t.id);
+      const link = document.createElement('a'); link.className = 'card-link';
+      link.href = '/title/' + encodeURIComponent(t.id);
+      const thumb = document.createElement('span'); thumb.className = 'thumb';
+      const poster = safePoster(posterUrl(t));
+      if(poster) thumb.style.backgroundImage = 'url(' + JSON.stringify(poster) + ')';
+      const meta = document.createElement('div'); meta.className = 'meta';
+      const heading = document.createElement('h3'); heading.textContent = titleName(t);
+      const info = document.createElement('span');
+      info.textContent = (t.type ? (t.type.description || t.type.value || '') : '') + (releaseYear(t) ? ' • ' + releaseYear(t) : '');
+      meta.append(heading, info); link.append(thumb, meta); c.append(link);
+      if(window.__awAddToList){
+        const save = document.createElement('button'); save.type = 'button'; save.className = 'card-save';
+        save.textContent = '+ My list'; save.setAttribute('aria-label', 'Add ' + titleName(t) + ' to My list');
+        save.onclick = () => { window.__awAddToList(t); save.textContent = '✓ In My list'; }; c.append(save);
+      }
+      link.onclick = e => {
+        if(e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault(); ++catalogGeneration;
+        t._kodik ? openKodikTitle(t) : openTitle(t.id);
+      };
       frag.appendChild(c);
     }
     el.results.appendChild(frag);
@@ -593,10 +612,9 @@ const API  = 'https://anilibria.top/api/v1';
   /* Goes through our own Worker instead of kodikapi.com directly: that host
      sends no CORS headers, so the direct call always failed with a bare
      "NetworkError" and no public CORS proxy is needed any more. */
-  async function searchKodik(token, t, options = {}){
+  async function searchKodik(token, t){
     const name = (t.name && (t.name.english || t.name.main)) || t.alias || titleName(t);
-    const params = new URLSearchParams(options.malId ? { shikimoriId:String(options.malId) } : { title:name });
-    if(options.translation) params.set('translationId', String(options.translation));
+    const params = new URLSearchParams({ title: name });
     const r = await fetch(KODIK_PROXY + '/search?' + params.toString());
     if(!r.ok){
       let msg = 'Kodik ' + r.status;
@@ -617,7 +635,6 @@ const API  = 'https://anilibria.top/api/v1';
     return AWPlayer.playerUrl(link, current.kodikState || { idx:current.ep || 0, time:0 });
   }
 
-  const kodikTranslationLinks = new Map();
   async function loadKodik(){
     const request = ++kodikRequest, title = current.title;
     const valid = () => request === kodikRequest && current.title === title && current.mode === 'kodik';
@@ -627,37 +644,14 @@ const API  = 'https://anilibria.top/api/v1';
     const mount = link => {
       if(!valid()) return;
       current.kodikLink = withKodikEpisode(link);
-      current.kodikResolving = false;
       el.detailState.classList.add('hidden');
       el.embedWrap.classList.remove('hidden');
       if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
     };
-    const preferred = current.kodikState?.translation;
-    if(current.kodikLink && (!preferred || current.kodikState.resolvedTranslation === preferred)){ mount(current.kodikLink); return; }
-    current.kodikResolving = true;
-    el.embedWrap.classList.add('hidden');
-    el.embedFrame.src = 'about:blank';
+    if(current.kodikLink){ mount(current.kodikLink); return; }
     el.detailState.classList.remove('hidden');
     el.detailState.innerHTML = '<div class="spinner"></div>Searching Kodik…';
     try{
-      // Resolve a concrete media link for the selected translation, rather
-      // than assuming a query parameter changes an already-bound media URL.
-      if(preferred){
-        const cacheKey = String(title.id) + ':' + preferred;
-        let link = kodikTranslationLinks.get(cacheKey);
-        if(!link){
-          const malId = await resolveMalId(title);
-          if(!valid()) return;
-          const results = await searchKodik(null, title, { malId, translation:preferred });
-          if(!valid()) return;
-          const hit = results.find(x => Number(x.translation?.id) === preferred && AWPlayer.safeLink(x.link));
-          if(!hit) throw new Error('Saved dub is unavailable. Your choice has been kept; retry when it is available.');
-          link = AWPlayer.safeLink(hit.link);
-          kodikTranslationLinks.set(cacheKey, link);
-        }
-        current.kodikState.resolvedTranslation = preferred;
-        mount(link); return;
-      }
       const token = await kodikToken();
       if(!valid()) return;
       if(!token){ askKodikToken(); return; }
@@ -673,12 +667,7 @@ const API  = 'https://anilibria.top/api/v1';
       if(!hit || !hit.link){ el.detailState.textContent = 'Nothing found in Kodik for this title.'; return; }
       mount((hit.link.indexOf('//') === 0 ? 'https:' : '') + hit.link);
     }catch(e){
-      if(valid()){
-        el.embedWrap.classList.add('hidden');
-        el.detailState.textContent = 'Could not load Kodik: ' + e.message + ' ';
-        const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'src-tab'; retry.textContent = 'Retry player';
-        retry.onclick = () => loadKodik(); el.detailState.appendChild(retry);
-      }
+      if(valid()) el.detailState.textContent = 'Could not load Kodik: ' + e.message;
     }
   }
 
@@ -974,7 +963,7 @@ const API  = 'https://anilibria.top/api/v1';
   });
 
   document.addEventListener('keydown', e => {
-    if(el.detail.classList.contains('hidden') || el.playerWrap.classList.contains('hidden')) return;
+    if($('#authBack').classList.contains('show') || el.detail.classList.contains('hidden') || el.playerWrap.classList.contains('hidden')) return;
     const ae = document.activeElement;
     if(ae && (['INPUT','SELECT','TEXTAREA'].includes(ae.tagName) || ae.isContentEditable)) return;
     if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
@@ -990,33 +979,13 @@ const API  = 'https://anilibria.top/api/v1';
   /* localStorage persistence */
   let lastSave = 0;
   function throttleSave(){ const now=Date.now(); if(now-lastSave>4000){ lastSave=now; saveProgress(); } }
-  function saveProgress(){
-    if(!current.title || current.ep==null) return;
-    const t = current.title;
-    localStorage.setItem(STORE, JSON.stringify({
-      id:t.id, name:titleName(t), poster:posterUrl(t),
-      idx:current.ep, quality:current.quality, time:Math.floor(el.video.currentTime)||0,
-      epLabel:(current.episodes[current.ep] && current.episodes[current.ep].ordinal) || (current.ep+1),
-      ts:Date.now()
-    }));
-    renderResume();
-  }
-  v.addEventListener('pause', saveProgress);
-  window.addEventListener('beforeunload', saveProgress);
+  // Persistence belongs to account.js (verified account / guest scopes).
+  // No unscoped fallback: if that module fails to load, do not overwrite old backups.
+  function saveProgress(){}
+  v.addEventListener('pause', () => saveProgress());
+  window.addEventListener('beforeunload', () => saveProgress());
 
-  function renderResume(){
-    const raw = localStorage.getItem(STORE);
-    if(!raw){ el.resumeSlot.innerHTML=''; return; }
-    let d; try{ d = JSON.parse(raw); }catch{ return; }
-    el.resumeSlot.innerHTML =
-      '<h2 class="section-title">Continue watching</h2>' +
-      // Was interpolated raw; now escaped and scheme-checked like everywhere else.
-      '<div class="resume"><img src="'+escapeHtml(safePoster(d.poster))+'" alt="" width="220" height="320" decoding="async" loading="lazy"/>' +
-      '<div class="r-info"><h4>'+escapeHtml(d.name)+'</h4>' +
-      '<p>Episode '+d.epLabel+' • '+fmt(d.time)+'</p></div>' +
-      '<span class="r-go">▶ Resume</span></div>';
-    $('.resume', el.resumeSlot).onclick = () => openTitle(d.id, { idx:d.idx, quality:d.quality, time:d.time });
-  }
+  function renderResume(){} // implemented by account.js
 
   /* helpers */
   function titleName(t){ return (t.name && (t.name.main || t.name.english)) || t.alias || 'Untitled'; }
@@ -1031,20 +1000,23 @@ const API  = 'https://anilibria.top/api/v1';
   /* Poster URLs come from third-party APIs. Only https: is allowed through,
      which also rules out javascript:/data: URLs and mixed content. */
   function safePoster(u){
-    const s = String(u || '');
-    return /^https:\/\//i.test(s) ? s : '';
+    try { const parsed = new URL(String(u || '')); return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.href : ''; }
+    catch(_) { return ''; }
   }
   function debounce(fn,ms){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a),ms); }; }
 
   /* search wiring */
   el.searchInput.addEventListener('input', () => {
+    ++catalogGeneration;
     if(!el.detail.classList.contains('hidden') && current.mode === 'libria' && !el.video.paused){
       enterPip();
     }
   });
 
-  el.searchInput.addEventListener('input', debounce(async e => {
-    const q = e.target.value.trim();
+  const runCatalogSearch = debounce(async (q, request) => {
+    if(request !== catalogGeneration || el.searchInput.value.trim() !== q) return;
+    if(window.__awFilteredCatalog && window.__awFilteredCatalog(q)) return;
+    const isCurrent = () => request === catalogGeneration && el.searchInput.value.trim() === q && !el.home.classList.contains('hidden');
     const keepPlaying = isPlayerLive() && (!el.video.paused || current.mode === 'kodik' || document.pictureInPictureElement);
     if(!q){ if(!el.detail.classList.contains('hidden')) showHome(keepPlaying); loadHome(); return; }
     if(!el.detail.classList.contains('hidden')) showHome(keepPlaying);
@@ -1059,6 +1031,7 @@ const API  = 'https://anilibria.top/api/v1';
         searchTitles(q).catch(() => []),
         searchAniListTitles(q).catch(() => []),
       ]);
+      if(!isCurrent()) return;
       // Keep "!" and pair the name with the year: sequels often differ from
       // season 1 by punctuation alone ("K-On!" vs "K-On!!"). Stripping it made
       // the later season look like a duplicate of the AniLibria entry and it
@@ -1088,12 +1061,14 @@ const API  = 'https://anilibria.top/api/v1';
         : (extras.length ? 'Extended catalog (Kodik)' : 'AniLibria');
       renderResults(merged);
     }
-    catch(err){ el.results.innerHTML = '<p class="hint">Search error: '+err.message+'</p>'; }
-  }, 350));
+    catch(err){ if(isCurrent()) el.results.innerHTML = '<p class="hint">Search error: '+escapeHtml(err.message)+'</p>'; }
+  }, 350);
+  el.searchInput.addEventListener('input', () => runCatalogSearch(el.searchInput.value.trim(), catalogGeneration));
 
   el.backBtn.onclick = () => showHome();
 
   function goHome(){
+    ++catalogGeneration;
     el.searchInput.value = '';
     const keepPlaying = isPlayerLive() && (!el.video.paused || current.mode === 'kodik' || document.pictureInPictureElement);
     showHome(keepPlaying);
@@ -1103,6 +1078,7 @@ const API  = 'https://anilibria.top/api/v1';
   el.logo.onclick = goHome;
   el.logo.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); goHome(); } });
   el.navHome.onclick = goHome;
+  el.navHome.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); goHome(); } });
   if(el.navNew) el.navNew.onclick = goHome;
 
   /* horizontal rail arrows */
@@ -1187,6 +1163,9 @@ const API  = 'https://anilibria.top/api/v1';
 
   /* init */
   async function loadHome(){
+    if(window.__awFilteredCatalog && window.__awFilteredCatalog(el.searchInput.value.trim())) return;
+    const request = ++catalogGeneration;
+    const isCurrent = () => request === catalogGeneration && !el.searchInput.value.trim();
     el.resultsTitle.textContent = 'New episodes';
     el.resultsSub.textContent = '';
     el.results.className = 'rail';
@@ -1194,10 +1173,11 @@ const API  = 'https://anilibria.top/api/v1';
     el.results.innerHTML = '<div class="spinner"></div>';
     try{
       const [list, top] = await Promise.all([ updatesTitles(), topTitles().catch(() => []) ]);
+      if(!isCurrent()) return;
       buildHero(top.length ? top : list);
       renderResults(list);
     }
-    catch(err){ hideHero(); el.results.className = 'grid'; el.results.innerHTML = '<p class="hint">Couldn\'t load: '+err.message+'</p>'; }
+    catch(err){ if(!isCurrent()) return; hideHero(); el.results.className = 'grid'; el.results.innerHTML = '<p class="hint">Couldn\'t load: '+escapeHtml(err.message)+'</p>'; }
   }
-  renderResume();
+  // account.js renders only the verified account/guest history.
   loadHome();

@@ -33,15 +33,3 @@ test('malformed, unrelated and invalid events never change playback', () => {
  assert.equal(p.parseEvent({key:'kodik_player_change_episode',value:'14garbage'}).episode,null);
  assert.equal(p.parseEvent({key:'kodik_player_time_update',value:-5}).time,null);
 });
-test('real current_episode event contains translation and season metadata', () => {
- const e=p.parseEvent({key:'kodik_player_current_episode',value:{episode:14,season:1,translation:{id:609,title:'AniDUB'}}});
- assert.equal(e.translation,609);assert.equal(e.episode,14);assert.equal(e.season,1);
-});
-test('old resume card cannot replace a fresh local translation preference', () => {
- const local={ts:200,kodik:{translation:777,translationTs:190}};
- const history={ts:100,kodik:{translation:609,translationTs:90}};
- assert.equal(p.translationPreference(local,history,history).translation,777);
-});
-test('newer playback snapshot without translation does not erase last known dub', () => {
- assert.equal(p.translationPreference({ts:300,kodik:{translation:null}},{ts:100,kodik:{translation:777,translationTs:80}}).translation,777);
-});

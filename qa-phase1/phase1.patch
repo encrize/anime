@@ -1,0 +1,1605 @@
+--- /dev/null
++++ b/FIXES-PHASE-1-RU.md
+@@ -0,0 +1,66 @@
++# AniWired — выполненные исправления, этап 1
++
++Дата: 18 октября 2026. Работа выполнена в отдельной копии предоставленного проекта. Исходный Archive.zip сохранён. Deployment, реальные аккаунты, production-данные и удалённая D1 не изменялись.
++
++## Что изменено
++
++| Находка аудита | Статус этапа | Изменение |
++|---|---|---|
++| F01: смешение аккаунтов | Основные проверенные сценарии исправлены | История, checkpoints и очереди привязаны к подтверждённому user ID; гостевые записи отдельно; старые общие данные не импортируются автоматически. Асинхронные ответы проверяют поколение сессии; старый 401 не завершает новую сессию. Старый плеер останавливается при смене identity |
++| F02: подмена приватности | Исправлено в проверенных сценариях | Login/register возвращают реальные settings; frontend при старом API запрашивает `/auth/me`. Неизвестные настройки не заменяются «всё публично», controls отключены. API принимает только boolean |
++| F03: отсутствующие миграции | Исправлен комплект для документированных v6/v7-схем | Добавлены одноразовые SQL и read-only preflight; тесты сохранения строк проходят. Старую email-схему намеренно не конвертируем вслепую |
++| F05: fail-open отзыв JWT | Исправлено в проверенных сценариях | Ошибка проверки эпохи → 503, пользователь отсутствует/epoch не совпадает → 401. Password/logout-all увеличивают epoch атомарным UPDATE; fallback без отзыва удалён. Privacy schema errors не превращаются в public defaults |
++| F06: восстановление удалённого прогресса | Исправлен текущий клиент; межустройственный протокол остаётся | Удалённые записи исключаются из очередей; DELETE выполняется после dispatched writes. Durable deletion journal повторяется после сбоя/reload перед sync. Ошибка не объявляется успешным удалением. Server-side tombstones для других клиентов ещё нужны |
++| F20: повторное сохранение неизменного snapshot | Исправлено | seen объединяется до сравнения сигнатуры |
++| F10: лимиты sync | Частично | Bulk upload разбивается на блоки ≤200. Пагинация GET и server-side history limits остаются |
++| F17: некорректные запросы/ошибки | Частично | Некорректный JWT → 401, null/array/non-object JSON → 400; malformed JSON → 400. Неожиданные API-ошибки больше не возвращают текст внутренних исключений. Полный body-size/rate-limit hardening ещё нужен |
++| F26: воспроизводимость тестов | Частично | Playwright 1.63.0 добавлен в lockfile, Node engines ≥22.13, новые regression suites включены. Clean-container `npm ci`, CI и реальный D1/staging ещё не проверены |
++| F30/F34: комплект/документация | Частично | Новый архив не включает .git/.wrangler/runtime SQLite/логи. README исправлен по PBKDF2, публичности Kodik-token, миграциям и Node; security issues старого кода не выдаются за устранённые |
++
++## Защита существующих данных
++
++- Непонятную принадлежность старого общего localStorage нельзя восстановить автоматически. Данные не уничтожены: добавлены явный импорт с подтверждением и локальное скачивание backup.
++- Импорт нормализует повреждённые поля и не принимает специальные prototype-key ID; исходные backups сохраняются.
++- Импорт гостевой истории в аккаунт — отдельное действие, использующее текущую приватность аккаунта.
++- При временной недоступности сервера токен не удаляется; неподтверждённые удаления сохраняются для повтора.
++- Локальный кеш остаётся same-origin localStorage, а не зашифрованным хранилищем. Изоляция UI/account sync не защищает от XSS, DevTools или доступа к профилю браузера.
++
++## Что проверено фактически
++
++- `npm run check`: успешно.
++- `npm test`: **27/27**. Включает 12 исходных тестов, 12 новых тестов безопасности/миграций и 3 schema-preflight теста.
++- `npm run test:browser`: три скрипта; исходные player/layout и sync checks прошли, плюс **18 новых identity/privacy/deletion/import проверок**. См. приложенные логи окончательного запуска.
++- Дополнительные сценарии: Alice → guest → Bob; failed queue; late GET; stale 401; DELETE после in-flight PUT; pagehide; failed DELETE/clear + reload; явный импорт; повреждённая legacy-запись; upload 205 записей блоками 200+5.
++- Chromium layout matrix исходных тестов: detail 11 ширин, home 6 ширин. Новый блок импорта просмотрен на мобильном скриншоте 390 px без смены фирменной темы.
++
++Среда: Linux, Node 24.14.1, предустановленные Playwright 1.63.0/Chromium. Браузерные API/iframe заменены заглушками, остальная внешняя сеть блокируется. Worker проверен в Node VM с SQLite `:memory:`, не в workerd/D1. Реальные пароли/ключи владельца не использовались и не отправлялись для тестирования. Пакетный registry использован только для фиксации Playwright/lockfile; обновление остального toolchain не выполнялось.
++
++## Изменённые участки
++
++- `public/account.js`: scope/key management, session-generation guards, queue ordering, durable deletion journal, explicit local import/backup, privacy state, merged dedup.
++- `public/app.js`: исходные pause/beforeunload listeners обращаются к актуальному persistence handler; общий legacy resume не показывается при старте.
++- `public/index.html`: блок явного переноса локальной истории в существующем визуальном стиле.
++- `worker/worker.js`: строгая проверка JWT/epoch, atomic revocation, реальные auth settings, validation и безопасные ошибки.
++- `migrate-v6.sql`, `migrate-v7.sql`, `schema.sql`, `scripts/check-schema.cjs`: комплект обновления/предупреждения для существующих БД.
++- `tests/auth-security.test.cjs`, `tests/schema-preflight.test.cjs`, `tests/identity-browser.cjs`: новые регрессии.
++- Исходные browser fixtures переведены на активный scoped history key; fixture-токен устанавливается только в top-level page, не в iframe.
++- `package.json`, `package-lock.json`, `README.md`, `UPDATE-RU.md`: воспроизводимость и честная инструкция установки.
++
++## Что не исправлено этим этапом
++
++Этот пакет **не закрывает весь аудит** и не является подтверждением production-безопасности.
++
++1. F04: публичная выдача Kodik-token. Нужно определить права ключа и допустимую серверную интеграцию; endpoint не отключён, чтобы не сломать текущий player flow.
++2. F07/F22–F25: клавиатурная навигация, focus trap, labels/ARIA, контраст, reduced motion.
++3. F13: геометрия мобильной mini-return панели.
++4. F14/F15/F16: XSS-sinks upstream metadata, статические/Worker headers и атомарные abuse limits.
++5. F08/F09/F10: seen merge для старых записей, доверие клиентскому времени/false ACK, пагинация чтения истории.
++6. Полное удаление между независимыми офлайн-устройствами/старыми вкладками: нужна серверная версия удаления/tombstones и обновление всех клиентов. Локальная очередь сама по себе этого не гарантирует.
++7. F11/F12/F18/F19: поиск, полная индикация sync, timeout/error budgets, четыре High dev-toolchain entries npm audit. Playwright добавлен, но Wrangler/Miniflare/Undici/Sharp не обновлялись автоматически.
++8. Остальные UX, архитектурные, performance и privacy-находки отчёта.
++
++## Перед production
++
++Начать с **UPDATE-RU.md**, backup и preflight реальной схемы. Проверить на staging с настоящим Worker/D1, затем отдельно разрешать deployment. Если база старее nickname/privacy-схемы, остановиться и подготовить её миграцию на основании реальной структуры — не выполнять новые SQL вслепую.
++
++Следующий рекомендуемый этап: закрыть XSS-sinks и заголовки, исправить keyboard/focus и mini-return; параллельно уточнить модель Kodik-token и спроектировать межустройственное удаление.
+--- a/README.md
++++ b/README.md
+@@ -10,24 +10,29 @@
+ ## Player / responsive fixes (v7)
+ 
+ **Existing installations must run `migrate-v7.sql` once before deploying this Worker.**
+-See [UPDATE-RU.md](UPDATE-RU.md) for upgrade steps, test results and limitations.
++See [UPDATE-RU.md](UPDATE-RU.md) for safe schema preflight, upgrade steps and limitations.
++This package also includes the first audit-remediation stage; see [FIXES-PHASE-1-RU.md](FIXES-PHASE-1-RU.md).
+ Fresh databases use the updated `schema.sql` instead.
+ 
+ ## Features
+ 
+ - **Accounts and auth** - sign up with a username and password (no email).
+-  Passwords are hashed with PBKDF2-SHA256 at 210k iterations (WebCrypto);
++  Passwords are hashed with PBKDF2-SHA256 at 100k iterations (WebCrypto);
+   sessions are HS256 JWTs with sliding renewal and instant revocation via
+   `users.token_epoch`.
+-- **Watch-history sync** - every title stores episode, timecode, duration,
++- **Watch-history sync** - local histories/checkpoints are scoped to user IDs,
++  with a separate guest store. Old unscoped history is retained for explicit,
++  confirmed import/backup instead of silently assigned to the next account.
++  Every title stores episode, timecode, duration,
+   quality, source, and the watched-episode set. Writes to D1 are debounced to
+   25 s and skipped when nothing changed; pause / seek / episode end / tab close
+   flush immediately. Server-side merging is last-write-wins with a union of
+   watched episodes, so an offline device never loses progress.
+ - **Two player sources** - AniLibria (built-in HLS player) and Kodik (embedded
+-  iframe). Kodik is reached through a server-side proxy, so its token never
+-  reaches the browser and the API host is auto-discovered from Kodik's own
+-  loader script.
++  iframe). Title lookup is proxied server-side; the current player flow still
++  sends a token to the browser. Do not configure a privileged server-only
++  Kodik key until this integration is redesigned. The API host is discovered
++  from Kodik's loader script.
+ - **Social** - comments under every title, public profiles at `/u/<nickname>`,
+   one-directional follows with mutual follows shown as friends, and
+   server-enforced privacy switches (hide profile, hide watch history).
+@@ -38,7 +43,9 @@
+   SPA fallback: `/`, `/title/<id>`, `/profile`, `/genre/<name>`,
+   `/u/<nickname>`, `/top/best`, `/top/popular`, `/random`.
+ - **Security hardening** - CORS origin allowlist, strict security headers and
+-  CSP on every response, per-IP / per-account rate limiting stored in D1.
++  CSP on Worker responses, static-asset headers configured separately, and
++  per-IP / per-account rate limiting stored in D1. Deployment headers and
++  concurrent rate limiting still require the follow-up audit fixes.
+ 
+ ## Tech stack
+ 
+@@ -62,8 +69,11 @@
+ │   └── og.jpg           # Open Graph card image
+ ├── worker/
+ │   └── worker.js        # backend: JWT auth, REST API, Kodik proxy, static assets
+-├── schema.sql           # full D1 schema (idempotent; all a fresh install needs)
+-├── migrate-v6.sql       # one-time upgrade for databases created before v6
++├── schema.sql           # fresh-install schema; NOT an upgrade script
++├── migrate-v6.sql       # one-time upgrade for documented nickname schema
++├── migrate-v7.sql       # one-time addition of progress.kodik_json
++├── scripts/check-schema.cjs # read-only preflight using PRAGMA JSON
++├── UPDATE-RU.md         # migration and rollback instructions
+ ├── wrangler.toml        # Worker config: assets binding + D1 binding
+ ├── package.json         # npm scripts (dev / deploy / db / secret)
+ └── .dev.vars.example    # local-secrets template (copy to .dev.vars)
+@@ -73,7 +83,7 @@
+ 
+ ### Prerequisites
+ 
+-- Node.js 18+ and npm
++- Node.js 22.13+ (Node 24 LTS recommended) and npm
+ - A Cloudflare account (the free tier is enough: Workers 100k requests/day,
+   D1 5 GB storage and 5M row reads/day)
+ 
+@@ -93,8 +103,9 @@
+ npm run db:remote   # wrangler d1 execute aniwired --remote --file=./schema.sql
+ ```
+ 
+-`schema.sql` is idempotent and already contains every table, so it is all a
+-fresh install needs.
++`schema.sql` contains all tables for a fresh installation. Re-running it
++does not add missing columns to existing tables; use the migration preflight
++for an existing database.
+ 
+ ### 3. Set the JWT secret
+ 
+@@ -133,20 +144,37 @@
+ 
+ ## Database migrations
+ 
+-`schema.sql` always describes the current schema and is safe to re-run.
+-Migrations are only needed for databases created by an older release:
+-
+-| File             | When to run                                                          |
+-|------------------|----------------------------------------------------------------------|
+-| `migrate-v6.sql` | Once, on pre-v6 databases: adds the `auth_attempts` table (rate limiting) and `users.token_epoch` (token revocation) |
+-
+-```bash
+-npx wrangler d1 execute aniwired --remote --file=./migrate-v6.sql
+-```
+-
+-The Worker degrades gracefully while a migration is missing (rate limiting
+-fails open, revocation checks are skipped) and its error responses name the
+-file to run.
++`schema.sql` describes a fresh database. `CREATE TABLE IF NOT EXISTS` does
++not upgrade an existing table. Do not deploy the fail-closed authentication
++changes against an unverified older schema.
++
++Read [UPDATE-RU.md](UPDATE-RU.md) first. The supplied migrations are **one-time**:
++
++| File | Applies only when |
++|---|---|
++| `migrate-v6.sql` | Nickname/privacy schema already exists but `users.token_epoch` is absent |
++| `migrate-v7.sql` | All v6 progress columns exist but `progress.kodik_json` is absent |
++
++An older **email-based** schema needs a separate, data-aware migration; these
++scripts must not be used to guess nickname mappings. Missing revocation data
++now prevents authorization (503), rather than silently accepting old tokens.
++
++## Local verification
++
++```bash
++npm ci
++npx playwright install chromium
++npm run check
++npm test
++# In a separate terminal, serve public/ on http://127.0.0.1:8787:
++python3 -m http.server 8787 --bind 127.0.0.1 --directory public
++# Then run browser regression tests (all providers/APIs are mocked):
++npm run test:browser
++```
++
++For a system Chromium, set `CHROMIUM_PATH` to its executable. Node tests use
++SQLite in memory; these are not a substitute for workerd/D1 staging tests.
++Do not point the browser fixtures at production.
+ 
+ ## API reference
+ 
+@@ -155,8 +183,8 @@
+ 
+ | Method | Path | Auth | Body / result |
+ |---|---|---|---|
+-| POST | `/api/auth/register` | - | `{username,password}` → `{token,user}` |
+-| POST | `/api/auth/login` | - | `{username,password}` → `{token,user}` |
++| POST | `/api/auth/register` | - | `{username,password}` → `{token,user,settings}` |
++| POST | `/api/auth/login` | - | `{username,password}` → `{token,user,settings}` |
+ | GET | `/api/auth/me` | Bearer | `{user, settings}` (+ rotated `token` when close to expiry) |
+ | PUT | `/api/auth/password` | Bearer | `{currentPassword,newPassword}` → `{ok,token}`, signs out other devices |
+ | POST | `/api/auth/logout-all` | Bearer | `{ok:true}`, revokes every issued token |
+--- /dev/null
++++ b/UPDATE-RU.md
+@@ -0,0 +1,94 @@
++# Обновление AniWired: первый этап исправлений
++
++**Автоматического deployment и изменения удалённой БД не выполнялось.** Этот документ — инструкция владельцу. Сначала staging/копия БД, затем отдельное решение о production.
++
++## 1. Сохранить резервные копии
++
++- Сохранить текущий рабочий frontend, Worker и настройки deployment.
++- Сделать согласованную резервную копию D1. Например, штатным `wrangler d1 export` в защищённое место **вне public/**. Проверить возможность восстановления на отдельной БД.
++- Не прикладывать дампы, `.dev.vars`, SQLite/WAL, токены и runtime-логи к публичному репозиторию или архиву сайта.
++- По возможности заранее скачать историю аккаунта и старую локальную историю: новый интерфейс позволяет скачать `pre-update backup` без отправки во внешние сервисы.
++
++## 2. Сначала проверить реальную схему
++
++Примеры следующих команд — только чтение структуры. Подставить правильное имя БД, для локальной копии заменить `--remote` на `--local`.
++
++```bash
++npx wrangler d1 execute aniwired --remote --command="PRAGMA table_info(users)" --json > users-columns.json
++npx wrangler d1 execute aniwired --remote --command="PRAGMA table_info(progress)" --json > progress-columns.json
++node scripts/check-schema.cjs users-columns.json progress-columns.json
++```
++
++`check-schema.cjs` читает два JSON-файла, не подключается к БД, не выполняет SQL и не обращается в сеть. Он проверяет имена столбцов, а не все ограничения/индексы. Дополнительно сверить `comments`, `follows`, `auth_attempts`, индексы и внешние ключи с `schema.sql`.
++
++### Как выбрать миграцию
++
++| Фактическое состояние | Действие после резервного копирования |
++|---|---|
++| База новая и пустая | Инициализировать `schema.sql`. Миграции поверх новой схемы не запускать |
++| Nickname/privacy-схема, но отсутствует `users.token_epoch` | Один раз `migrate-v6.sql` |
++| Все v6-поля progress существуют, отсутствует только `progress.kodik_json` | Один раз `migrate-v7.sql` |
++| Оба поля уже существуют | Эти ALTER-миграции пропустить |
++| Вместо `username` имеется старая email-схема или отсутствуют другие обязательные поля | **Остановиться.** Нужна отдельная миграция с сохранением пользователей и явным отображением email → nickname; приложенные скрипты её не заменяют |
++
++`migrate-v6.sql` добавляет `token_epoch` и таблицу/индекс `auth_attempts`. Он не восстанавливает отсутствующие nickname/privacy-поля. `migrate-v7.sql` добавляет только `kodik_json`. Это одноразовые SQL-файлы: повторный ALTER завершится ошибкой duplicate column. Предварительная проверка обязательна.
++
++Повторное выполнение `schema.sql` **не обновляет столбцы существующих таблиц**. Не используйте его как универсальную замену миграциям.
++
++## 3. Проверка на отдельной среде
++
++После применения выбранных миграций к **копии**:
++
++1. Сверить число пользователей/записей и несколько реальных отношений между таблицами, не выводя пароли/токены в общие журналы.
++2. Проверить вход, `/api/auth/me`, точное сохранение приватности, старый и новый токены после смены пароля, выход со всех устройств.
++3. Проверить двух пользователей в одном браузере, гостевую историю, явный импорт, Kodik/AniLibria и deep links.
++4. Проверить удаление во время отправки прогресса; повторить с потерей сети и перезагрузкой.
++5. Проверить реальный workerd/D1, заголовки и providers. Локальные VM/SQLite/browser-mock проверки в этом пакете не заменяют staging.
++
++Для штатных локальных проверок:
++
++```bash
++npm ci
++npx playwright install chromium
++npm run check
++npm test
++# В другом терминале:
++python3 -m http.server 8787 --bind 127.0.0.1 --directory public
++# Затем:
++npm run test:browser
++```
++
++Node ≥22.13; фактически проверено на Node 24.14.1. Для системного Chromium можно задать `CHROMIUM_PATH`. Playwright закреплён в devDependencies/lockfile; установленный браузер всё равно нужен. Проверка `npm ci` в чистом контейнере на этом этапе не выполнялась.
++
++## 4. Поведение при отсутствии схемы/сбое D1
++
++Проверка отзыва сессии теперь закрывается безопасно: ошибка чтения `token_epoch` → 503 без выдачи защищённых данных; отсутствующий пользователь/отозванный epoch → 401. Пользователь не должен терять сохранённый токен из-за 503. Отсутствующие privacy-поля не подменяются публичными значениями.
++
++Это намеренное изменение: устаревшая или недоступная БД больше не означает обход проверки отзыва. Поэтому нельзя сначала выкатывать новый Worker, а миграции откладывать на потом.
++
++## 5. Локальная история после обновления
++
++Новые ключи:
++
++- `aniwired:history:guest` — гостевые записи;
++- `aniwired:history:user:<id>` — история подтверждённого аккаунта;
++- `aw:kodik:checkpoints:guest` и `aw:kodik:checkpoints:user:<id>` — отдельные checkpoints;
++- `aw:history:deletions:<scope>` — очередь неподтверждённых удалений.
++
++ID кодируется через `encodeURIComponent`. Старые `aniwired:history`, `aniwired:last`, `aw:kodik:checkpoints` оставлены без автоматического присвоения аккаунту. Новый блок **Local history from this device** предлагает явный импорт и скачивание старого backup. Импорт требует подтверждения; для аккаунта применяются его текущие серверные настройки приватности. Проверьте владельца записей, особенно на общем устройстве. Исходные старые/гостевые записи остаются резервной копией после импорта. Старые checkpoints включены в backup, но автоматически не переносятся.
++
++При выходе плеер предыдущего пользователя останавливается. Его локальный кеш не показывается гостю и не загружается в следующий аккаунт. При удалении самого аккаунта удаляется и его новый локальный кеш в текущем браузере; старые общие backups не считаются принадлежащими ему и автоматически не стираются.
++
++## 6. Ограничения удаления
++
++В текущем клиенте отменяются queued snapshots, ожидается завершение уже отправленных записей, затем выполняется DELETE. Намерение удаления сохраняется до подтверждения сервера и повторяется перед дальнейшим sync после reload/online. При сбое показывается pending, а не ложный успех. Повторное добавление после успешного удаления возможно при намеренном повторном открытии/просмотре тайтла.
++
++**Серверные tombstones и версии удаления между независимыми устройствами пока не реализованы.** Старый офлайн-клиент или уже отправленный запрос из другой вкладки всё ещё может восстановить запись. Старые клиенты должны быть обновлены. Полная межустройственная гарантия требует следующего согласованного изменения протокола/схемы.
++
++## 7. Выкатка и откат
++
++Ни одна production-команда не запускалась. После staging-проверок выполнять миграции и deployment только в согласованное окно и с проверенным backup. Не применять ALTER «на всякий случай». После deployment перезагрузить клиенты, повторить smoke checks и наблюдать 401/503, D1 errors и sync.
++
++Не откатывать Worker на прежнюю fail-open авторизацию ради восстановления доступности. Сначала проверить схему/привязки и восстановить сервис. Добавленные столбцы обратно совместимы на уровне хранения, но поведение старого кода небезопасно. Восстановление дампа может потерять новые данные: план отката нужно проверить отдельно на staging.
++
++Полномочия `KODIK_TOKEN` не выяснены. Существующая выдача токена в браузер не изменена: не используйте привилегированный server-only ключ в текущем player flow. Следующий этап — пересмотр этой интеграции, XSS-sinks, заголовков, клавиатурной доступности и мобильной панели.
+--- /dev/null
++++ b/migrate-v6.sql
+@@ -0,0 +1,10 @@
++-- One-time upgrade for the documented pre-v6 nickname-based schema.
++-- Inspect PRAGMA table_info(users) first. Do NOT run on a schema that already
++-- contains token_epoch. This is NOT a migration from the old email-based DB.
++ALTER TABLE users ADD COLUMN token_epoch INTEGER NOT NULL DEFAULT 0;
++CREATE TABLE IF NOT EXISTS auth_attempts (
++  key TEXT PRIMARY KEY,
++  count INTEGER NOT NULL,
++  reset_at INTEGER NOT NULL
++);
++CREATE INDEX IF NOT EXISTS idx_auth_attempts_reset ON auth_attempts(reset_at);
+--- /dev/null
++++ b/migrate-v7.sql
+@@ -0,0 +1,3 @@
++-- One-time v6 -> v7 upgrade. Inspect PRAGMA table_info(progress) first.
++-- Do NOT rerun after kodik_json has been added. Existing rows are preserved.
++ALTER TABLE progress ADD COLUMN kodik_json TEXT;
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -8,7 +8,11 @@
+       "name": "aniwired-fullstack",
+       "version": "1.0.0",
+       "devDependencies": {
++        "playwright": "1.63.0",
+         "wrangler": "^4.20.0"
++      },
++      "engines": {
++        "node": ">=22.13.0"
+       }
+     },
+     "node_modules/@cloudflare/kv-asset-handler": {
+@@ -1380,6 +1384,35 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/playwright": {
++      "version": "1.63.0",
++      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.63.0.tgz",
++      "integrity": "sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "dependencies": {
++        "playwright-core": "1.63.0"
++      },
++      "bin": {
++        "playwright": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    },
++    "node_modules/playwright-core": {
++      "version": "1.63.0",
++      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.63.0.tgz",
++      "integrity": "sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "playwright-core": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    },
+     "node_modules/semver": {
+       "version": "7.8.5",
+       "resolved": "https://registry.npmjs.org/semver/-/semver-7.8.5.tgz",
+--- a/package.json
++++ b/package.json
+@@ -10,10 +10,14 @@
+     "db:remote": "wrangler d1 execute aniwired --remote --file=./schema.sql",
+     "secret": "wrangler secret put JWT_SECRET",
+     "test": "node --test tests/*.test.cjs",
+-    "test:browser": "node tests/browser.cjs && node tests/sync-browser.cjs",
++    "test:browser": "node tests/browser.cjs && node tests/sync-browser.cjs && node tests/identity-browser.cjs",
+     "check": "node --check public/app.js && node --check public/account.js && node --check public/player-state.js && node --check worker/worker.js"
+   },
+   "devDependencies": {
++    "playwright": "1.63.0",
+     "wrangler": "^4.20.0"
++  },
++  "engines": {
++    "node": ">=22.13.0"
+   }
+ }
+--- a/public/account.js
++++ b/public/account.js
+@@ -4,8 +4,34 @@
+     /* config */
+     const API_BASE  = (localStorage.getItem('aw:api') || '').replace(/\/$/, '');
+     const TOKEN_KEY = 'aw:token';
+-    const HIST_KEY  = 'aniwired:history';   // { [animeId]: item }
+-    const LAST_KEY  = STORE;                // 'aniwired:last' - legacy compatibility
++    const HISTORY_BASE = 'aniwired:history';
++    const CHECKPOINT_BASE = 'aw:kodik:checkpoints';
++    // Never assign the old unscoped keys to whoever signs in next. They are
++    // retained, untouched, for a deliberate export/import by their owner.
++    let scope = localStorage.getItem(TOKEN_KEY) ? null : 'guest';
++    let sessionGeneration = 0, historyRevision = 0;
++    const storageKey = base => scope ? base + ':' + scope : null;
++    const progressRequests = new Set();
++    const suppressedTitles = new Set(), deletingTitles = new Set();
++    let clearingHistory = false, deletionFlight = null;
++    const DELETE_BASE = 'aw:history:deletions';
++    function deletionJournal(){
++      if(!scope) return {clear:false, ids:[]};
++      try{
++        const saved = JSON.parse(localStorage.getItem(storageKey(DELETE_BASE)) || '{}');
++        return {clear:saved?.clear === true, ids:Array.isArray(saved?.ids) ? saved.ids.map(String) : []};
++      }catch(_){ return {clear:false, ids:[]}; }
++    }
++    function writeDeletionJournal(state){
++      const key = storageKey(DELETE_BASE);
++      if(!key) return;
++      if(!state.clear && !state.ids.length) localStorage.removeItem(key);
++      else localStorage.setItem(key, JSON.stringify(state));
++    }
++    function deletionPending(id){
++      const state = deletionJournal();
++      return state.clear || state.ids.includes(String(id));
++    }
+ 
+     let user  = null;
+     let token = localStorage.getItem(TOKEN_KEY) || '';
+@@ -16,7 +42,8 @@
+       const headers = { 'Accept':'application/json' };
+       if(opts.body !== undefined) headers['Content-Type'] = 'application/json';
+       const useAuth = opts.auth !== false;
+-      if(useAuth && token) headers['Authorization'] = 'Bearer ' + token;
++      const requestToken = token, generation = sessionGeneration;
++      if(useAuth && requestToken) headers['Authorization'] = 'Bearer ' + requestToken;
+       const res = await fetch(API_BASE + path, {
+         method: opts.method || 'GET',
+         headers,
+@@ -25,20 +52,31 @@
+       });
+       let data = null;
+       try{ data = await res.json(); }catch(_){}
+-      if(res.status === 401 && useAuth && token){ setToken(''); renderAuthUI(); }
++      if(generation !== sessionGeneration || (useAuth && requestToken !== token)){
++        throw new Error('Session changed; stale response ignored');
++      }
++      if(res.status === 401 && useAuth && requestToken){ setToken(''); renderAuthUI(); }
+       if(!res.ok) throw new Error((data && data.error) || ('Request failed (' + res.status + ')'));
+       return data || {};
+     }
+ 
++    // Track dispatched writes so a DELETE can be ordered after them. Aborting
++    // fetch alone cannot guarantee that a server has not already committed it.
++    function progressCall(path, opts){
++      const request = apiCall(path, opts);
++      progressRequests.add(request);
++      request.then(() => progressRequests.delete(request), () => progressRequests.delete(request));
++      return request;
++    }
++
+     /* local history store */
+     function readHistory(){
+-      try{ return JSON.parse(localStorage.getItem(HIST_KEY) || '{}') || {}; }catch(_){ return {}; }
++      if(!scope) return {};
++      try{ return JSON.parse(localStorage.getItem(storageKey(HISTORY_BASE)) || '{}') || {}; }catch(_){ return {}; }
+     }
+     function writeHistory(map){
+-      localStorage.setItem(HIST_KEY, JSON.stringify(map));
+-      const last = latestItem(map);
+-      if(last) localStorage.setItem(LAST_KEY, JSON.stringify(last));
+-      else localStorage.removeItem(LAST_KEY);
++      if(!scope) return;
++      localStorage.setItem(storageKey(HISTORY_BASE), JSON.stringify(map));
+     }
+     function historyList(){
+       return Object.values(readHistory()).filter(Boolean).sort((a,b) => (b.ts||0) - (a.ts||0));
+@@ -64,14 +102,79 @@
+       delete map[String(id)];
+       writeHistory(map);
+     }
+-    (function migrate(){
++    function storedObject(key){
++      try{
++        const value = JSON.parse(localStorage.getItem(key) || 'null');
++        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
++      }catch(_){ return {}; }
++    }
++    function importableHistory(legacy){
++      const source = storedObject(legacy ? HISTORY_BASE : HISTORY_BASE + ':guest');
++      if(legacy){
++        const last = storedObject(STORE);
++        if(last.id != null && !Object.prototype.hasOwnProperty.call(source, String(last.id))) source[String(last.id)] = last;
++      }
++      const number = value => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
++      return Object.values(source).filter(it => it && typeof it === 'object' &&
++        (typeof it.id === 'string' || typeof it.id === 'number') &&
++        String(it.id).trim().length > 0 && String(it.id).length <= 64 &&
++        !['__proto__','constructor','prototype'].includes(String(it.id))).map(it => ({
++          id:String(it.id), name:String(it.name || 'Untitled').slice(0,300),
++          poster:safePoster(String(it.poster || '')).slice(0,600), idx:number(it.idx),
++          time:number(it.time), duration:number(it.duration), quality:String(it.quality || '').slice(0,32),
++          epLabel:String(it.epLabel ?? (number(it.idx) + 1)).slice(0,32), epTotal:number(it.epTotal),
++          source:it.source === 'kodik' || isKodikId(it.id) ? 'kodik' : 'libria',
++          seen:[...new Set((Array.isArray(it.seen) ? it.seen : []).map(number))].sort((a,b)=>a-b).slice(0,2000),
++          ts:Math.min(number(it.ts), Date.now()),
++          kodik:it.kodik && typeof it.kodik === 'object' ? {
++            mal:AWPlayer.positive(it.kodik.mal), season:AWPlayer.positive(it.kodik.season),
++            translation:AWPlayer.positive(it.kodik.translation), link:AWPlayer.safeLink(it.kodik.link || '')
++          } : undefined
++        }));
++    }
++    function renderLocalImport(){
++      const box = $('#pfLocalImport');
++      if(!box) return;
++      const legacy = importableHistory(true).length > 0;
++      const guest = !!user && importableHistory(false).length > 0;
++      const backup = [HISTORY_BASE, STORE, CHECKPOINT_BASE].some(key => localStorage.getItem(key) !== null);
++      box.classList.toggle('hidden', !legacy && !guest && !backup);
++      $('#importLegacy').classList.toggle('hidden', !legacy);
++      $('#importGuest').classList.toggle('hidden', !guest);
++      $('#exportLegacy').classList.toggle('hidden', !backup);
++      $('#importLegacy').disabled = $('#importGuest').disabled = !scope || (!!user && !settings) || clearingHistory || deletionJournal().clear;
++    }
++    async function importDeviceHistory(legacy){
++      if(!scope || clearingHistory || deletionJournal().clear || (user && !settings)) return;
++      const items = importableHistory(legacy);
++      if(!items.length) return;
++      const target = user ? '@' + user.username : 'guest history on this device';
++      if(!confirm('Import ' + items.length + ' records into ' + target + '? Only continue if these records belong to you.' +
++        (user ? ' They will be synced using this account’s current privacy settings.' : ''))) return;
++      historyRevision++;
+       const map = readHistory();
+-      if(Object.keys(map).length) return;
+-      try{
+-        const legacy = JSON.parse(localStorage.getItem(LAST_KEY) || 'null');
+-        if(legacy && legacy.id != null){ legacy.id = String(legacy.id); map[legacy.id] = legacy; writeHistory(map); }
+-      }catch(_){}
+-    })();
++      for(const original of items){
++        const id = String(original.id);
++        if(deletingTitles.has(id) || deletionPending(id)) continue;
++        const old = map[id];
++        const seen = [...new Set([...(Array.isArray(old?.seen) ? old.seen : []), ...(Array.isArray(original.seen) ? original.seen : [])])];
++        map[id] = { ...((old?.ts || 0) > (original.ts || 0) ? old : original), id, seen };
++        suppressedTitles.delete(id);
++      }
++      writeHistory(map); renderResume(); renderProfile(); refreshStats();
++      // Keep the originals as a recoverable backup. Never delete or silently
++      // claim ownership of unscoped data during an account transition.
++      toast(user ? 'Imported locally; account sync will retry when available' : 'Imported into guest history on this device');
++      if(user) await syncProgress(true);
++    }
++    $('#importGuest').onclick = () => importDeviceHistory(false);
++    $('#importLegacy').onclick = () => importDeviceHistory(true);
++    $('#exportLegacy').onclick = () => {
++      const data = { history:storedObject(HISTORY_BASE), last:storedObject(STORE), checkpoints:storedObject(CHECKPOINT_BASE) };
++      const href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}));
++      const a = document.createElement('a'); a.href = href; a.download = 'aniwired-pre-update-backup.json';
++      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(href), 30000);
++    };
+ 
+     /* formatting helpers */
+     function fmtLong(sec){
+@@ -119,26 +222,28 @@
+     ]);
+ 
+     function pushProgress(item, immediate){
+-      if(!token || !item) return;
++      if(!token || !user || !scope || !item || clearingHistory || suppressedTitles.has(String(item.id)) || deletionPending(item.id)) return;
+       pendingItem = item;
+       const id = String(item.id), previous = pendingWrites.get(id);
+       if(!previous || item.ts >= previous.ts) pendingWrites.set(id, item);
+       const flush = () => {
+         pushTimer = 0;
+-        const authToken = token;
++        const authToken = token, generation = sessionGeneration;
+         for(const [id, snapshot] of pendingWrites){
++          if(clearingHistory || suppressedTitles.has(id) || deletionPending(id)){ pendingWrites.delete(id); continue; }
+           if(inFlight.has(id)) continue;
+           const sig = progressSig(snapshot);
+           if(pushedSigs.get(id) === sig){ pendingWrites.delete(id); continue; }
+           pendingWrites.delete(id); inFlight.set(id, sig);
+-          apiCall('/api/progress', { method:'PUT', body:{ item:snapshot }, keepalive:!!immediate })
+-            .then(() => { if(token === authToken) pushedSigs.set(id, sig); })
++          progressCall('/api/progress', { method:'PUT', body:{ item:snapshot }, keepalive:!!immediate })
++            .then(() => { if(generation === sessionGeneration && token === authToken && !suppressedTitles.has(id)) pushedSigs.set(id, sig); })
+             .catch(() => {
+-              if(token !== authToken) return;
++              if(generation !== sessionGeneration || token !== authToken || clearingHistory || suppressedTitles.has(id)) return;
+               const newer = pendingWrites.get(id);
+               if(!newer || newer.ts < snapshot.ts) pendingWrites.set(id, snapshot);
+             })
+             .finally(() => {
++              if(generation !== sessionGeneration) return;
+               inFlight.delete(id);
+               if(token && pendingWrites.size && !pushTimer) pushTimer = setTimeout(flush, SYNC_DEBOUNCE_MS);
+             });
+@@ -149,15 +254,22 @@
+     }
+ 
+     async function syncProgress(silent){
+-      if(!token) return;
++      if(!token || !user || !scope || clearingHistory) return;
++      const started = sessionGeneration;
++      try{ await drainDeletions(); }
++      catch(_){ if(!silent) toast('History removal is pending; reconnect to retry'); return; }
++      if(started !== sessionGeneration) return;
++      const generation = sessionGeneration, revision = historyRevision;
+       let serverItems = [];
+       try{ serverItems = (await apiCall('/api/progress')).items || []; }
+-      catch(_){ if(!silent) toast('Could not reach the sync server'); return; }
++      catch(_){ if(generation === sessionGeneration && !silent) toast('Could not reach the sync server'); return; }
++      if(generation !== sessionGeneration || revision !== historyRevision || clearingHistory) return;
+ 
+       const map = readHistory();
+       const toPush = [];
+       const seenIds = {};
+       for(const s of serverItems){
++        if(suppressedTitles.has(String(s.id))) continue;
+         s.id = String(s.id); seenIds[s.id] = true;
+         const l = map[s.id];
+         if(l){ s.seen = [...new Set([...(l.seen || []), ...(s.seen || [])])].sort((a,b) => a-b); l.seen = s.seen;
+@@ -165,16 +277,25 @@
+         if(!l || (l.ts||0) <= (s.ts||0)) map[s.id] = s;
+         else toPush.push(l);
+       }
+-      for(const id in map) if(!seenIds[id]) toPush.push(map[id]);
++      for(const id in map) if(!seenIds[id] && !suppressedTitles.has(id)) toPush.push(map[id]);
+ 
+       writeHistory(map);
+       renderResume();
+       renderProfile();
+       if(toPush.length || failedQueue.length){
+-        const items = toPush.concat(failedQueue);
++        const items = toPush.concat(failedQueue).filter(item => !suppressedTitles.has(String(item.id)));
+         failedQueue = [];
+-        try{ await apiCall('/api/progress/bulk', { method:'POST', body:{ items } }); }
+-        catch(_){ failedQueue = items; }
++        try{
++          // The API accepts at most 200 items per request. Never silently drop
++          // the tail of a large local history.
++          for(let i = 0; i < items.length; i += 200){
++            if(generation !== sessionGeneration || revision !== historyRevision || clearingHistory) return;
++            const batch = items.slice(i, i + 200).filter(item => !suppressedTitles.has(String(item.id)));
++            if(batch.length) await progressCall('/api/progress/bulk', { method:'POST', body:{ items:batch } });
++          }
++        }catch(_){
++          if(generation === sessionGeneration && revision === historyRevision) failedQueue = items.filter(item => !suppressedTitles.has(String(item.id)));
++        }
+       }
+     }
+ 
+@@ -220,7 +341,7 @@
+     }
+ 
+     saveProgress = function(){
+-      if(!playerLive() || (current.mode !== 'kodik' && (current.libriaRestoring || el.playerWrap.classList.contains('hidden')))) return;
++      if(!scope || clearingHistory || (current.title && (suppressedTitles.has(String(current.title.id)) || deletionPending(current.title.id))) || !playerLive() || (current.mode !== 'kodik' && (current.libriaRestoring || el.playerWrap.classList.contains('hidden')))) return;
+       const t     = current.title;
+       const idx   = playerIdx();
+       const ep    = (current.episodes || [])[idx];
+@@ -264,6 +385,8 @@
+         seen: [idx],
+         ts: Date.now()
+       };
++      // Compare the same merged snapshot that will actually be stored.
++      item.seen = [...new Set([...(prev?.seen || []), ...item.seen])].sort((a,b) => a-b);
+       if(prev && progressSig(prev) === progressSig(item)) return;
+       putLocal(item);
+       renderResume();
+@@ -332,19 +455,19 @@
+     };
+ 
+     const kodikState = { key:'', idx:0, time:0, duration:0, season:null, translation:null, confirmed:false };
+-    const CHECKPOINT_KEY = 'aw:kodik:checkpoints';
+     function checkpoints(){
+-      try { return JSON.parse(localStorage.getItem(CHECKPOINT_KEY) || '{}') || {}; } catch(_) { return {}; }
++      if(!scope) return {};
++      try { return JSON.parse(localStorage.getItem(storageKey(CHECKPOINT_BASE)) || '{}') || {}; } catch(_) { return {}; }
+     }
+     function checkpoint(){
+-      if(!current.title || current.mode !== 'kodik') return;
++      if(!scope || !current.title || current.mode !== 'kodik' || clearingHistory || suppressedTitles.has(String(current.title.id)) || deletionPending(current.title.id)) return;
+       const map = checkpoints();
+       map[kodikState.key] = { idx:current.ep || 0, time:kodikState.time, duration:kodikState.duration,
+         kodik:{ mal:current.malId, season:kodikState.season, translation:kodikState.translation,
+           link:current.kodikLink ? AWPlayer.safeLink(withKodikEpisode(current.kodikLink)) : '' }, ts:Date.now() };
+       // Keep a bounded local selection cache even before the 30-second history threshold.
+       const entries = Object.entries(map).sort((a,b) => b[1].ts - a[1].ts).slice(0,200);
+-      try { localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(Object.fromEntries(entries))); } catch(_) {}
++      try { localStorage.setItem(storageKey(CHECKPOINT_BASE), JSON.stringify(Object.fromEntries(entries))); } catch(_) {}
+     }
+     function paintKodikSelection(){
+       $$('.ep', el.episodes).forEach(b => b.classList.toggle('active', +b.dataset.idx === current.ep));
+@@ -531,27 +654,81 @@
+     });
+ 
+     async function resumeItem(d){
++      const generation = sessionGeneration;
+       const viaKodik = d.source === 'kodik' || isKodikId(d.id);
+       if(!viaKodik) return openTitle(d.id, { idx:d.idx, quality:d.quality, time:d.time });
+       let t = readKodikCache(String(d.id));
+       if(!t && !(d.kodik && d.kodik.mal != null)) t = await fetchAniListById(d.id);
++      if(generation !== sessionGeneration) return;
+       if(!t) t = kodikTitleFrom(d);
+       if(!t._eps && d.epTotal) t._eps = d.epTotal;
+       return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0), duration:d.duration || 0, kodik:d.kodik });
+     }
+-    function deleteItem(id){
+-      removeLocal(id);
+-      renderResume(); renderProfile(); refreshStats();
+-      if(token) apiCall('/api/progress/' + encodeURIComponent(id), { method:'DELETE' }).catch(()=>{});
+-      toast('Removed from history');
++    function cancelQueuedProgress(id){
++      pendingWrites.delete(id); pushedSigs.delete(id);
++      if(pendingItem && String(pendingItem.id) === id) pendingItem = null;
++      failedQueue = failedQueue.filter(item => String(item.id) !== id);
++    }
++    function drainDeletions(){
++      if(deletionFlight) return deletionFlight;
++      const generation = sessionGeneration;
++      const run = async () => {
++        // Wait for already-dispatched writes; AbortController alone cannot
++        // undo a server commit. The durable journal survives closing this tab.
++        await Promise.allSettled([...progressRequests]);
++        while(generation === sessionGeneration && scope){
++          const state = deletionJournal();
++          if(!state.clear && !state.ids.length) return;
++          const id = state.clear ? null : state.ids[0];
++          if(token){
++            await apiCall('/api/progress' + (id === null ? '' : '/' + encodeURIComponent(id)), {method:'DELETE'});
++          }
++          if(generation !== sessionGeneration) return;
++          if(id === null){
++            Object.keys(readHistory()).forEach(key => suppressedTitles.add(key));
++            writeHistory({}); localStorage.removeItem(storageKey(CHECKPOINT_BASE));
++            writeDeletionJournal({clear:false, ids:[]});
++          }else{
++            removeLocal(id);
++            const saved = checkpoints(); delete saved[id];
++            localStorage.setItem(storageKey(CHECKPOINT_BASE), JSON.stringify(saved));
++            const next = deletionJournal(); next.ids = next.ids.filter(key => key !== id);
++            writeDeletionJournal(next);
++          }
++        }
++      };
++      deletionFlight = run().finally(() => { if(generation === sessionGeneration) deletionFlight = null; });
++      return deletionFlight;
++    }
++    async function deleteItem(id){
++      id = String(id);
++      if(!scope || clearingHistory || deletingTitles.has(id)) return;
++      const generation = sessionGeneration;
++      const journal = deletionJournal(); journal.ids = [...new Set([...journal.ids, id])];
++      writeDeletionJournal(journal);
++      suppressedTitles.add(id); deletingTitles.add(id); historyRevision++;
++      cancelQueuedProgress(id);
++      try{
++        await drainDeletions();
++        if(generation !== sessionGeneration) return;
++        renderResume(); renderProfile(); refreshStats();
++        toast('Removed from history');
++      }catch(_){
++        if(generation === sessionGeneration) toast('Removal pending. Reconnect or try again; progress will not be re-uploaded.');
++      }finally{
++        if(generation === sessionGeneration) deletingTitles.delete(id);
++      }
+     }
+ 
+     window.addEventListener('pagehide', () => { saveProgress(); pushProgress(pendingItem || latestItem(readHistory()), true); });
+     document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden'){ saveProgress(); pushProgress(pendingItem, true); } });
+     window.addEventListener('online', () => { if(token) syncProgress(true); });
+     window.addEventListener('storage', e => {
+-      if(e.key === HIST_KEY){ renderResume(); renderProfile(); refreshStats(); }
+-      if(e.key === TOKEN_KEY){ token = localStorage.getItem(TOKEN_KEY) || ''; bootSession(); }
++      if(e.key === storageKey(HISTORY_BASE)){ renderResume(); renderProfile(); refreshStats(); }
++      if(e.key === TOKEN_KEY){
++        setToken(localStorage.getItem(TOKEN_KEY) || '');
++        setIdentity(null); renderAuthUI(); bootSession();
++      }
+     });
+ 
+     function markSeenEpisodes(){
+@@ -1120,7 +1297,7 @@
+      * 4) Privacy settings
+      * ================================================================= */
+ 
+-    let settings = { historyPublic:true, profilePublic:true };
++    let settings = null;
+     const pv = { box:$('#pfPrivacy'), history:$('#pvHistory'), profile:$('#pvProfile'), note:$('#pvNote') };
+ 
+     function renderPrivacy(){
+@@ -1128,6 +1305,12 @@
+       const signed = !!(token && user);
+       pv.box.classList.toggle('hidden', !signed);
+       if(!signed) return;
++      pv.history.disabled = pv.profile.disabled = !settings;
++      if(!settings){
++        pv.history.checked = pv.profile.checked = false;
++        pv.note.textContent = 'Privacy settings unavailable. Reconnect and sign in again before changing them.';
++        return;
++      }
+       pv.history.checked = !!settings.historyPublic;
+       pv.profile.checked = !!settings.profilePublic;
+       pv.note.innerHTML = settings.profilePublic
+@@ -1136,18 +1319,19 @@
+     }
+ 
+     async function savePrivacy(){
+-      if(!(token && user)) return;
++      if(!(token && user && settings)) return;
++      const generation = sessionGeneration;
+       const next = { historyPublic: !!pv.history.checked, profilePublic: !!pv.profile.checked };
+       pv.history.disabled = pv.profile.disabled = true;
+       try{
+         const d = await apiCall('/api/settings', { method:'PUT', body: next });
++        if(generation !== sessionGeneration) return;
+         settings = d.settings || next;
+         toast('Privacy settings saved');
+       }catch(err){
+         toast(err.message || 'Could not save the privacy settings');
+       }finally{
+-        pv.history.disabled = pv.profile.disabled = false;
+-        renderPrivacy();
++        if(generation === sessionGeneration) renderPrivacy();
+       }
+     }
+     if(pv.history) pv.history.onchange = savePrivacy;
+@@ -1210,9 +1394,9 @@
+         accSay(acc.msg, 'All sessions were revoked', 'ok');
+         // This token is dead too, so drop it locally instead of waiting for 401.
+         setToken('');
+-        settings = { historyPublic:true, profilePublic:true };
++        settings = null;
+         renderAuthUI();
+-        toast('Signed out everywhere - progress stays on this device');
++        toast('Signed out everywhere - account history stays separate');
+       }catch(err){ accSay(acc.msg, err.message || 'Could not revoke the sessions', 'err'); }
+       finally{ acc.logoutAll.disabled = false; }
+     };
+@@ -1246,11 +1430,14 @@
+       try{
+         await apiCall('/api/account', { method:'DELETE', body:{ password } });
+         acc.delPwd.value = '';
++        localStorage.removeItem(storageKey(HISTORY_BASE));
++        localStorage.removeItem(storageKey(CHECKPOINT_BASE));
++        localStorage.removeItem(storageKey(DELETE_BASE));
+         setToken('');
+-        settings = { historyPublic:true, profilePublic:true };
++        settings = null;
+         renderAuthUI();
+         accSay(acc.delMsg, 'Account deleted', 'ok');
+-        toast('Account deleted - local history stays on this device');
++        toast('Account deleted');
+         showHome();
+       }catch(err){ accSay(acc.delMsg, err.message || 'Could not delete the account', 'err'); }
+       finally{ acc.delBtn.disabled = false; }
+@@ -1425,6 +1612,7 @@
+       refreshStats();
+       renderPrivacy();
+       renderAccount();
++      renderLocalImport();
+ 
+       const signed = !!(token && user);
+       const who    = signed ? (user.displayName || user.username || 'user') : 'Guest';
+@@ -1490,15 +1678,23 @@
+     pf.filter.addEventListener('input', debounce(renderProfile, 150));
+     pf.sort.addEventListener('change', renderProfile);
+     pf.clear.onclick = async () => {
+-      if(!historyList().length) return;
++      if(!scope || clearingHistory || !historyList().length) return;
+       if(!confirm('Clear the whole watch history?')) return;
+-      localStorage.removeItem(HIST_KEY);
+-      localStorage.removeItem(LAST_KEY);
+-      renderResume(); renderProfile(); refreshStats();
+-      if(token){
+-        try{ await apiCall('/api/progress', { method:'DELETE' }); }catch(_){}
+-      }
+-      toast('Watch history cleared');
++      const generation = sessionGeneration;
++      const ids = historyList().map(item => String(item.id));
++      if(current.title) ids.push(String(current.title.id));
++      ids.forEach(id => { suppressedTitles.add(id); cancelQueuedProgress(id); });
++      writeDeletionJournal({clear:true, ids:[]});
++      clearingHistory = true; historyRevision++;
++      clearTimeout(pushTimer); pushTimer = 0; pendingWrites.clear(); pendingItem = null; failedQueue = [];
++      try{
++        await drainDeletions();
++        if(generation !== sessionGeneration) return;
++        renderResume(); renderProfile(); refreshStats();
++        toast('Watch history cleared');
++      }catch(_){
++        if(generation === sessionGeneration) toast('History removal pending. Reconnect to retry; progress will not be re-uploaded.');
++      }finally{ if(generation === sessionGeneration){ clearingHistory = false; renderLocalImport(); } }
+     };
+     pf.back.onclick = () => showHome();
+ 
+@@ -1549,6 +1745,7 @@
+ 
+     const _openTitle = openTitle;
+     openTitle = function(id, resume){
++      if(!deletingTitles.has(String(id)) && !clearingHistory && !deletionPending(id)) suppressedTitles.delete(String(id));
+       const saved = readHistory()[String(id)];
+       if(!resume && saved?.source === 'kodik') return resumeItem(saved);
+       if(!resume && saved) resume = { idx:saved.idx, time:saved.time, quality:saved.quality };
+@@ -1568,6 +1765,7 @@
+     if(typeof openKodikTitle === 'function'){
+       const _openKodik = openKodikTitle;
+       openKodikTitle = function(t, resume){
++        if(!deletingTitles.has(String(t.id)) && !clearingHistory && !deletionPending(t.id)) suppressedTitles.delete(String(t.id));
+         pf.section.classList.add('hidden');
+         hidePub();
+         if(t && t.id != null){
+@@ -1673,11 +1871,36 @@
+     };
+     let mode = 'login';
+ 
++    function resetSessionWork(){
++      sessionGeneration++;
++      clearTimeout(pushTimer); pushTimer = 0;
++      pendingWrites.clear(); pushedSigs.clear(); inFlight.clear(); progressRequests.clear();
++      pendingItem = null; failedQueue = []; deletionFlight = null;
++    }
++    function setIdentity(nextUser){
++      if(nextUser && (typeof nextUser.id !== 'string' || !nextUser.id)) throw new Error('Invalid account identity');
++      const nextScope = nextUser ? 'user:' + encodeURIComponent(nextUser.id) : (token ? null : 'guest');
++      if(scope !== nextScope){
++        resetSessionWork();
++        // Stop the old account's player before exposing a new storage scope.
++        scope = null;
++        el.mrClose.click(); current.title = null;
++        watch.key = ''; watch.acc = 0; lastPicked = null;
++        suppressedTitles.clear(); deletingTitles.clear(); clearingHistory = false;
++        scope = nextScope;
++        deletionJournal().ids.forEach(id => suppressedTitles.add(id));
++      }
++      user = nextUser;
++    }
+     function setToken(t){
+-      if(token !== (t || '')){ clearTimeout(pushTimer); pushTimer = 0; pendingWrites.clear(); pushedSigs.clear(); pendingItem = null; }
+-      token = t || '';
++      t = t || '';
++      if(token !== t) resetSessionWork();
++      token = t;
+       if(token) localStorage.setItem(TOKEN_KEY, token);
+-      else { localStorage.removeItem(TOKEN_KEY); user = null; }
++      else {
++        localStorage.removeItem(TOKEN_KEY);
++        setIdentity(null); settings = null;
++      }
+     }
+     function setMsg(text, ok){
+       ael.msg.textContent = text || '';
+@@ -1746,11 +1969,18 @@
+       ael.submit.disabled = true; setMsg('Please wait\u2026');
+       try{
+         const data = await apiCall('/api/auth/' + mode, { method:'POST', auth:false, body:{ username, password } });
+-        setToken(data.token); user = data.user;
+-        settings = data.settings || { historyPublic:true, profilePublic:true };
++        // Old API versions did not return settings. Fetch real values rather
++        // than inventing public defaults; keep controls disabled on failure.
++        let me = data;
++        setToken(data.token);
++        if(!data.settings) me = await apiCall('/api/auth/me');
++        setIdentity(me.user || data.user);
++        settings = me.settings || null;
+         setMsg(mode === 'login' ? 'Signed in' : 'Account created', true);
+         renderAuthUI();
++        const generation = sessionGeneration;
+         await syncProgress();
++        if(generation !== sessionGeneration) return;
+         toast('Signed in as ' + (user.displayName || user.username));
+         setTimeout(closeAuth, 450);
+         ael.password.value = '';
+@@ -1760,10 +1990,10 @@
+ 
+     ael.logout.onclick = () => {
+       setToken('');
+-      settings = { historyPublic:true, profilePublic:true };
++      settings = null;
+       renderAuthUI();
+       closeAuth();
+-      toast('Signed out - progress stays on this device');
++      toast('Signed out - account history stays separate from guest history');
+     };
+ 
+     /* session restore */
+@@ -1775,12 +2005,13 @@
+           // current one is close to expiry, so an active user is never
+           // signed out on a fixed schedule.
+           if(me.token) setToken(me.token);
+-          user = me.user;
+-          if(me.settings) settings = me.settings;
++          setIdentity(me.user);
++          settings = me.settings || null;
+           renderAuthUI();
+           await syncProgress(true);
+         }catch(_){ renderAuthUI(); /* A temporary network outage must not sign the user out. */ }
+       } else {
++        try{ await drainDeletions(); }catch(_){}
+         renderAuthUI();
+       }
+     }
+@@ -1813,6 +2044,7 @@
+       const out = _renderAuthUI.apply(this, arguments);
+       updateCommentForm();
+       renderPrivacy();
++      renderLocalImport();
+       socialLoaded = false;
+       loadSocial();
+       if(cmAnimeId) loadComments(cmAnimeId, cmAnimeName);
+@@ -1827,6 +2059,7 @@
+       get settings(){ return settings; },
+       get social(){ return social; },
+       syncProgress, apiCall, readHistory, historyList, goProfile,
++      get historyKey(){ return storageKey(HISTORY_BASE); },
+       goUser, goGenre, showGenre, loadSocial, goTop, goRandom,
+       hdSetup(){ if(typeof window.__awHdSetup === 'function') window.__awHdSetup(); }
+     };
+--- a/public/app.js
++++ b/public/app.js
+@@ -971,8 +971,8 @@
+     }));
+     renderResume();
+   }
+-  v.addEventListener('pause', saveProgress);
+-  window.addEventListener('beforeunload', saveProgress);
++  v.addEventListener('pause', () => saveProgress());
++  window.addEventListener('beforeunload', () => saveProgress());
+ 
+   function renderResume(){
+     const raw = localStorage.getItem(STORE);
+@@ -1169,5 +1169,5 @@
+     }
+     catch(err){ hideHero(); el.results.className = 'grid'; el.results.innerHTML = '<p class="hint">Couldn\'t load: '+err.message+'</p>'; }
+   }
+-  renderResume();
++  // account.js renders only the verified account/guest history.
+   loadHome();
+--- a/public/index.html
++++ b/public/index.html
+@@ -235,6 +235,16 @@
+         <button class="pf-clear" id="pfClear" type="button">Clear history</button>
+       </div>
+ 
++      <div class="pf-acc hidden" id="pfLocalImport">
++        <h3>Local history from this device</h3>
++        <p class="acc-hint">Old and guest records are not assigned to an account automatically. Only import records that belong to you, especially on a shared device.</p>
++        <div class="acc-row">
++          <button class="acc-btn hidden" id="importGuest" type="button">Import guest history</button>
++          <button class="acc-btn hidden" id="importLegacy" type="button">Import pre-update history</button>
++          <button class="acc-btn hidden" id="exportLegacy" type="button">Download pre-update backup</button>
++        </div>
++      </div>
++
+       <div class="pf-privacy hidden" id="pfPrivacy">
+         <h3>Privacy</h3>
+         <label class="pf-toggle">
+--- a/schema.sql
++++ b/schema.sql
+@@ -2,7 +2,8 @@
+ -- AniWired - Cloudflare D1 schema
+ -- Apply locally : npx wrangler d1 execute aniwired --local  --file=./schema.sql
+ -- Apply remote  : npx wrangler d1 execute aniwired --remote --file=./schema.sql
+--- The script is idempotent, it is safe to run it again after an update.
++-- Fresh installations only. CREATE IF NOT EXISTS does not upgrade columns.
++-- Existing installations: inspect the schema and follow UPDATE-RU.md.
+ -- =====================================================================
+ 
+ PRAGMA foreign_keys = ON;
+--- /dev/null
++++ b/scripts/check-schema.cjs
+@@ -0,0 +1,21 @@
++// Read-only preflight: consumes saved Wrangler --json output, not a database.
++const fs=require('node:fs');
++if(process.argv.length!==4){console.error('Usage: node scripts/check-schema.cjs users-columns.json progress-columns.json');process.exit(2)}
++function columns(path){
++ const data=JSON.parse(fs.readFileSync(path,'utf8'));
++ const rows=Array.isArray(data)&&data[0]?.results ? data[0].results : (Array.isArray(data)?data:data.results);
++ if(!Array.isArray(rows)||!rows.every(row=>typeof row.name==='string'))throw Error('Expected PRAGMA table_info rows in '+path);
++ return new Set(rows.map(row=>row.name));
++}
++try{
++ const users=columns(process.argv[2]),progress=columns(process.argv[3]);
++ const missingUsers=['id','username','display_name','password_hash','created_at','history_public','profile_public'].filter(c=>!users.has(c));
++ const missingProgress=['user_id','anime_id','name','poster','episode_idx','quality','time_sec','duration_sec','ep_label','ep_total','source','seen_json','updated_at'].filter(c=>!progress.has(c));
++ if(missingUsers.length||missingProgress.length){
++  console.error('STOP: unsupported older/incomplete schema. No SQL has been run.');console.error(JSON.stringify({missingUsers,missingProgress},null,2));process.exit(1);
++ }
++ console.log(users.has('token_epoch')?'users.token_epoch present: do not rerun migrate-v6.sql.':'Plan: after backup, run migrate-v6.sql once.');
++ console.log(progress.has('kodik_json')?'progress.kodik_json present: do not rerun migrate-v7.sql.':'Plan: after backup, run migrate-v7.sql once.');
++ console.log('Also verify comments/follows/auth_attempts tables and indexes against schema.sql. This script checks columns only; it does not prove FK/index equivalence.');
++ console.log('No SQL executed; no network requests.');
++}catch(e){console.error(e.message);process.exit(2)}
+--- /dev/null
++++ b/tests/auth-security.test.cjs
+@@ -0,0 +1,76 @@
++const {test}=require('node:test');
++const assert=require('node:assert/strict');
++const fs=require('node:fs');
++const vm=require('node:vm');
++const {DatabaseSync}=require('node:sqlite');
++const source=fs.readFileSync('worker/worker.js','utf8');
++const secret='SYNTHETIC_LOCAL_TEST_SECRET_0123456789';
++const sandbox={TextEncoder,TextDecoder,URL,URLSearchParams,Request,Response,Headers,crypto:globalThis.crypto,btoa,atob,console:{error(){},log(){}}};
++vm.createContext(sandbox);
++vm.runInContext(source.replace('export default {','globalThis.worker = {')+';globalThis.h={signJWT,hashPassword,checkPassword,requireUser};',sandbox);
++const {worker,h}=sandbox;
++async function fixture(t){
++ const db=new DatabaseSync(':memory:');db.exec(fs.readFileSync('schema.sql','utf8'));t.after(()=>db.close());
++ const hash=await h.hashPassword('local-test-password');
++ db.prepare('INSERT INTO users(id,username,display_name,password_hash,created_at,profile_public,history_public) VALUES(?,?,?,?,?,?,?)').run('u','tester','Tester',hash,1,0,0);
++ let epochFailure=false;
++ const env={JWT_SECRET:secret,DB:{prepare(sql){let args=[];const q={bind(...v){args=v;return q},async first(){if(epochFailure&&sql.startsWith('SELECT token_epoch'))throw Error('Synthetic database failure');return db.prepare(sql).get(...args)||null},async all(){return {results:db.prepare(sql).all(...args)}},async run(){return db.prepare(sql).run(...args)}};return q}}};
++ const token=await h.signJWT({sub:'u',username:'tester',epoch:0},secret);
++ async function request(path,method='GET',body,auth=token){
++  const res=await worker.fetch(new Request('https://local.test/api'+path,{method,headers:{...(auth?{Authorization:'Bearer '+auth}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body)}),env,{});
++  return {status:res.status,data:await res.json()};
++ }
++ return {db,env,token,request,failEpoch:()=>{epochFailure=true}};
++}
++test('login returns actual private settings, not invented public defaults',async t=>{
++ const f=await fixture(t);const r=await f.request('/auth/login','POST',{username:'tester',password:'local-test-password'},'');
++ assert.equal(r.status,200);assert.deepEqual(r.data.settings,{historyPublic:false,profilePublic:false});assert.ok(r.data.token);
++});
++test('registration returns actual persisted settings',async t=>{
++ const f=await fixture(t);const r=await f.request('/auth/register','POST',{username:'another',password:'local-test-password'},'');
++ assert.equal(r.status,201);assert.deepEqual(r.data.settings,{historyPublic:true,profilePublic:true});
++});
++test('revoked tokens and deleted users are rejected',async t=>{
++ const f=await fixture(t);f.db.prepare('UPDATE users SET token_epoch=1').run();assert.equal((await f.request('/progress')).status,401);
++ f.db.prepare('DELETE FROM users').run();assert.equal((await f.request('/progress')).status,401);
++});
++test('database failure closes authorization with 503, never returns history',async t=>{
++ const f=await fixture(t);f.failEpoch();const r=await f.request('/progress');assert.equal(r.status,503);assert.equal(r.data.code,'auth.state_unavailable');assert.equal(r.data.items,undefined);
++});
++test('malformed JWTs are 401, not internal 500',async t=>{
++ const f=await fixture(t);for(const bad of ['a.b.!','!!!.e30.signature','e30.bm90LWpzb24.x'])assert.equal((await f.request('/progress','GET',undefined,bad)).status,401);
++});
++test('future token epoch is rejected even with a valid signature',async t=>{
++ const f=await fixture(t);const forgedEpoch=await h.signJWT({sub:'u',epoch:99},secret);assert.equal((await f.request('/progress','GET',undefined,forgedEpoch)).status,401);
++});
++test('null and array JSON bodies produce 400, not a leaked TypeError',async t=>{
++ const f=await fixture(t);for(const body of [null,[],42,'value']){const r=await f.request('/auth/login','POST',body,'');assert.equal(r.status,400);assert.equal(r.data.code,'request.invalid_body');}
++});
++test('privacy settings require actual booleans and preserve existing values on error',async t=>{
++ const f=await fixture(t);const bad=await f.request('/settings','PUT',{historyPublic:'false',profilePublic:'false'});assert.equal(bad.status,422);
++ assert.equal(f.db.prepare('SELECT profile_public FROM users').get().profile_public,0);
++ const good=await f.request('/settings','PUT',{historyPublic:true,profilePublic:false});assert.equal(good.status,200);assert.deepEqual(good.data.settings,{historyPublic:true,profilePublic:false});
++});
++test('password change atomically revokes old sessions and issues a valid replacement',async t=>{
++ const f=await fixture(t);const r=await f.request('/auth/password','PUT',{currentPassword:'local-test-password',newPassword:'different-local-password'});assert.equal(r.status,200);
++ assert.equal(f.db.prepare('SELECT token_epoch FROM users').get().token_epoch,1);assert.equal((await f.request('/progress')).status,401);
++ assert.equal((await f.request('/progress','GET',undefined,r.data.token)).status,200);
++ assert.equal(await h.checkPassword('different-local-password',f.db.prepare('SELECT password_hash FROM users').get().password_hash),true);
++});
++test('logout-all increments epoch and invalidates its own token',async t=>{
++ const f=await fixture(t);assert.equal((await f.request('/auth/logout-all','POST',{})).status,200);assert.equal((await f.request('/progress')).status,401);
++ assert.equal(f.db.prepare('SELECT token_epoch FROM users').get().token_epoch,1);
++});
++test('privacy columns missing from old DB do not fall back to public defaults',async t=>{
++ const f=await fixture(t);f.db.exec('ALTER TABLE users DROP COLUMN profile_public');const r=await f.request('/auth/login','POST',{username:'tester',password:'local-test-password'},'');
++ assert.equal(r.status,500);assert.equal(r.data.token,undefined);assert.equal(r.data.error,'An internal error occurred');
++});
++test('v6 and v7 upgrade the documented nickname schema without losing rows',()=>{
++ const old=fs.readFileSync('schema.sql','utf8').replace(/^.*token_epoch\s+INTEGER.*\n/m,'  legacy_padding INTEGER DEFAULT 0\n').replace(/^.*kodik_json.*\n/m,'');
++ const db=new DatabaseSync(':memory:');try{
++  db.exec(old);db.prepare('INSERT INTO users(id,username,password_hash,created_at) VALUES(?,?,?,?)').run('u','tester','unchanged-hash',1);
++  db.prepare('INSERT INTO progress(user_id,anime_id,updated_at,time_sec) VALUES(?,?,?,?)').run('u','al-1',100,42);
++  db.exec(fs.readFileSync('migrate-v6.sql','utf8'));db.exec(fs.readFileSync('migrate-v7.sql','utf8'));
++  assert.equal(db.prepare('SELECT token_epoch FROM users').get().token_epoch,0);const row=db.prepare('SELECT * FROM progress').get();assert.equal(row.time_sec,42);assert.equal(row.kodik_json,null);
++ }finally{db.close()}
++});
+--- a/tests/browser.cjs
++++ b/tests/browser.cjs
+@@ -20,7 +20,7 @@
+  });
+  await page.goto('http://127.0.0.1:8787/'); await page.waitForFunction(()=>!!window.AniWired);
+  await page.evaluate(t=>{
+-  localStorage.setItem('aniwired:history',JSON.stringify({[t.id]:{id:t.id,name:t.name.main,idx:13,time:1338,duration:1440,source:'kodik',epTotal:24,ts:1,kodik:{mal:123,translation:609,season:2},seen:[13]}}));
++  localStorage.setItem(AniWired.historyKey,JSON.stringify({[t.id]:{id:t.id,name:t.name.main,idx:13,time:1338,duration:1440,source:'kodik',epTotal:24,ts:1,kodik:{mal:123,translation:609,season:2},seen:[13]}}));
+   return openKodikTitle(t);
+  },title());
+  let src=await page.locator('#embedFrame').getAttribute('src');
+--- /dev/null
++++ b/tests/identity-browser.cjs
+@@ -0,0 +1,173 @@
++// Local-only regression harness. All APIs/providers are replaced with fixtures.
++const {chromium}=require('playwright');
++const assert=require('node:assert/strict');
++const fs=require('node:fs');
++const title={id:'al-1',_kodik:true,_mal:1,_eps:24,_epsTotal:24,name:{main:'Local fixture'},poster:{src:''}};
++const item=(id='al-1')=>({id,name:'Local fixture',idx:0,time:5,duration:1440,source:'kodik',seen:[0,1],ts:1});
++const pause=ms=>new Promise(r=>setTimeout(r,ms));
++(async()=>{
++ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--no-sandbox']});
++ const passed=[];
++ async function setup({signed=false,oldLogin=false}={}){
++  const ctx=await browser.newContext(),calls=[],completed=[],errors=[];
++  const control={failBulk:false,failDelete:false,holdPut:null,holdGet:null,hold401:null,holdMedia:null};
++  const remote={alice:{},bob:{}};
++  if(signed)await ctx.addInitScript(()=>{if(window===top)localStorage.setItem('aw:token','synthetic-alice')});
++  await ctx.route('**/*',async r=>{
++   const req=r.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
++   if(url.origin==='http://127.0.0.1:8787'){
++    if(path.startsWith('/api/')){
++     const who=(req.headers().authorization||'').replace('Bearer synthetic-','')||'alice';
++     const body=req.postData()?JSON.parse(req.postData()):undefined;
++     calls.push({path,method,who,body});
++     const user={id:who,username:who,displayName:who};
++     if(path==='/api/auth/login'){const name=body.username;return r.fulfill({json:{token:'synthetic-'+name,user:{id:name,username:name,displayName:name},...(!oldLogin?{settings:{profilePublic:false,historyPublic:false}}:{})}})}
++     if(path==='/api/auth/me')return r.fulfill({json:{user,settings:{profilePublic:false,historyPublic:false}}});
++     if(path==='/api/old-401'){if(control.hold401)await control.hold401;return r.fulfill({status:401,json:{error:'Old credentials'}})}
++     if(path==='/api/settings'&&method==='PUT')return r.fulfill({json:{settings:body}});
++     if(path==='/api/progress'&&method==='GET'){
++      const snapshot=Object.values(remote[who]||{}).map(i=>({...i}));const hold=control.holdGet;control.holdGet=null;if(hold)await hold;
++      return r.fulfill({json:{items:snapshot}});
++     }
++     if(path==='/api/progress'&&method==='PUT'){
++      if(control.holdPut)await control.holdPut;
++      (remote[who]??={})[body.item.id]=body.item;completed.push({method,id:body.item.id,who});return r.fulfill({json:{ok:true,item:body.item}});
++     }
++     if(path==='/api/progress/bulk'){
++      if(control.failBulk)return r.fulfill({status:503,json:{error:'Synthetic outage'}});
++      for(const i of body.items)(remote[who]??={})[i.id]=i;completed.push({method,who});return r.fulfill({json:{ok:true}});
++     }
++     if(path.startsWith('/api/progress')&&method==='DELETE'){
++      if(control.failDelete)return r.fulfill({status:503,json:{error:'Synthetic delete failure'}});
++      const id=decodeURIComponent(path.slice('/api/progress/'.length));
++      if(path==='/api/progress')remote[who]={};else delete (remote[who]||{})[id];
++      completed.push({method,id,who});return r.fulfill({json:{ok:true}});
++     }
++     if(path==='/api/kodik/token')return r.fulfill({json:{token:'synthetic-player-token'}});
++     return r.fulfill({json:{items:[],comments:[],friends:[],followers:[],following:[],ok:true}});
++    }
++    if(/^\/(title\/|u\/|profile)/.test(path))return r.fulfill({contentType:'text/html',body:fs.readFileSync('public/index.html','utf8')});
++    return r.continue();
++   }
++   if(url.hostname==='graphql.anilist.co'){if(control.holdMedia&&!req.postData()?.includes('Page('))await control.holdMedia;return r.fulfill({json:{data:{Page:{media:[]},Media:{id:99,idMal:1,title:{romaji:'Delayed old title'},episodes:24}}}})}
++   if(url.hostname==='anilibria.top')return r.fulfill({json:[]});
++   if(url.hostname==='kodikplayer.com')return r.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Local player fixture</body></html>'});
++   return r.abort();
++  });
++  const page=await ctx.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
++  await page.goto('http://127.0.0.1:8787');await page.waitForFunction(()=>!!window.AniWired);if(signed)await page.waitForFunction(()=>AniWired.user?.id==='alice');
++  return {ctx,page,calls,completed,control,remote,errors};
++ }
++ async function check(name,fn,options){const x=await setup(options);try{await fn(x);assert.deepEqual(x.errors,[]);passed.push(name);console.log('PASS: '+name)}catch(e){console.error('Fixture errors:',x.errors);console.error(await x.page.evaluate(()=>({user:AniWired.user,token:localStorage.getItem('aw:token'),scope:AniWired.historyKey,modal:document.querySelector('#authBack').className})));throw e}finally{await x.ctx.close()}}
++ async function login(page,name){
++  await page.locator('#navAuth').click();await page.locator('#authName').fill(name);await page.locator('#authPassword').fill('synthetic-password');await page.locator('#authSubmit').click();
++  await page.waitForFunction(name=>AniWired.user?.id===name,name);await page.waitForFunction(()=>!document.querySelector('#authBack').classList.contains('show'));
++ }
++ async function logout(page){await page.locator('#navAuth').click();await page.locator('#authLogout').click();await page.waitForFunction(()=>!AniWired.user,{},{timeout:3000})}
++ async function seed(page,items){await page.evaluate(items=>{const map=Object.fromEntries(items.map(i=>[i.id,i]));localStorage.setItem(AniWired.historyKey,JSON.stringify(map));dispatchEvent(new StorageEvent('storage',{key:AniWired.historyKey}))},items)}
++ async function start(x){
++  await seed(x.page,[item()]);await x.page.evaluate(t=>openKodikTitle(t),title);
++  await x.page.waitForFunction(()=>document.querySelector('#embedFrame').src.startsWith('https://kodikplayer.com'));
++  let frame;for(let i=0;i<50;i++){frame=x.page.frames().find(f=>f.url().startsWith('https://kodikplayer.com'));if(frame)break;await pause(20)}assert.ok(frame);
++  await frame.evaluate(()=>parent.postMessage({key:'kodik_player_time_update',value:45},'http://127.0.0.1:8787'));
++  await x.page.waitForFunction(()=>current.kodikState?.time===45);await x.page.evaluate(()=>saveProgress());
++ }
++ const writes=x=>x.calls.filter(c=>c.path.startsWith('/api/progress')&&['PUT','POST'].includes(c.method));
++ try{
++  await check('login keeps private settings and changing history does not expose profile',async x=>{
++   await login(x.page,'alice');await x.page.evaluate(()=>AniWired.goProfile());assert.equal(await x.page.locator('#pvProfile').isChecked(),false);assert.equal(await x.page.locator('#pvHistory').isChecked(),false);
++   await x.page.locator('#pvHistory').check();await x.page.waitForFunction(()=>AniWired.settings.historyPublic===true);const saved=x.calls.find(c=>c.path==='/api/settings'&&c.method==='PUT');assert.deepEqual(saved.body,{historyPublic:true,profilePublic:false});
++  });
++  await check('old login API fetches real settings through auth/me',async x=>{
++   await login(x.page,'alice');assert.deepEqual(await x.page.evaluate(()=>AniWired.settings),{historyPublic:false,profilePublic:false});assert.ok(x.calls.some(c=>c.path==='/api/auth/me'));
++  },{oldLogin:true});
++  await check('legacy and guest history are never silently uploaded into an account',async x=>{
++   await seed(x.page,[item('guest-title')]);await x.page.evaluate(i=>{localStorage.setItem('aniwired:history',JSON.stringify({[i.id]:i}));localStorage.setItem('aniwired:last',JSON.stringify(i))},item('unknown-owner'));
++   await login(x.page,'alice');await x.page.evaluate(()=>AniWired.syncProgress());assert.deepEqual(await x.page.evaluate(()=>AniWired.readHistory()),{});assert.equal(writes(x).length,0);
++   assert.ok(await x.page.evaluate(()=>localStorage.getItem('aniwired:history')));
++  });
++  await check('guest history is imported only after explicit confirmation',async x=>{
++   await seed(x.page,[item('guest-owned')]);await login(x.page,'alice');await x.page.evaluate(()=>AniWired.goProfile());
++   assert.equal(writes(x).length,0);await x.page.locator('#importGuest').click();await x.page.waitForFunction(()=>!!AniWired.readHistory()['guest-owned']);
++   for(let i=0;i<50&&!x.remote.alice['guest-owned'];i++)await pause(20);assert.ok(x.remote.alice['guest-owned']);
++   assert.ok(await x.page.evaluate(()=>JSON.parse(localStorage.getItem('aniwired:history:guest'))['guest-owned']));
++  });
++  await check('pre-update import is explicit and keeps the original backup',async x=>{
++   await x.page.evaluate(i=>localStorage.setItem('aniwired:history',JSON.stringify({[i.id]:i})),item('legacy-owned'));
++   await login(x.page,'alice');await x.page.evaluate(()=>AniWired.goProfile());assert.equal(writes(x).length,0);
++   await x.page.locator('#importLegacy').click();await x.page.waitForFunction(()=>!!AniWired.readHistory()['legacy-owned']);
++   assert.ok(await x.page.evaluate(()=>JSON.parse(localStorage.getItem('aniwired:history'))['legacy-owned']));
++   if(process.env.AW_TEST_OUTPUT){await x.page.setViewportSize({width:390,height:844});await x.page.screenshot({path:process.env.AW_TEST_OUTPUT+'/import-390.png',fullPage:true})}
++  });
++  await check('damaged legacy records are normalized without crashing the history UI',async x=>{
++   await x.page.evaluate(()=>localStorage.setItem('aniwired:history',JSON.stringify({bad:{id:'al-bad',name:123,source:{unexpected:true},seen:'bad-array',time:'NaN',poster:'javascript:alert(1)',ts:4102444800000}})));
++   await login(x.page,'alice');await x.page.evaluate(()=>AniWired.goProfile());await x.page.locator('#importLegacy').click();await x.page.waitForFunction(()=>!!AniWired.readHistory()['al-bad']);
++   const saved=await x.page.evaluate(()=>AniWired.readHistory()['al-bad']);assert.equal(saved.source,'kodik');assert.equal(saved.name,'123');assert.equal(saved.time,0);assert.deepEqual(saved.seen,[]);assert.equal(saved.poster,'');assert.ok(saved.ts<=Date.now());
++  });
++  await check('Alice history and failed uploads stay out of Bob account; caches are scoped',async x=>{
++   await seed(x.page,[item('private-alice')]);x.control.failBulk=true;await x.page.evaluate(()=>AniWired.syncProgress(true));x.control.failBulk=false;
++   await x.page.evaluate(()=>localStorage.setItem('aw:kodik:checkpoints:user:alice',JSON.stringify({'al-1':{idx:10}})));
++   await logout(x.page);assert.deepEqual(await x.page.evaluate(()=>AniWired.readHistory()),{});await login(x.page,'bob');await x.page.evaluate(()=>AniWired.syncProgress());
++   assert.deepEqual(await x.page.evaluate(()=>AniWired.readHistory()),{});assert.equal(writes(x).some(c=>c.who==='bob'&&JSON.stringify(c.body).includes('private-alice')),false);
++   assert.ok(await x.page.evaluate(()=>localStorage.getItem('aniwired:history:user:alice')));
++  },{signed:true});
++  await check('delayed resume cannot open the previous account title after switching identity',async x=>{
++   await seed(x.page,[item('al-99')]);let release;x.control.holdMedia=new Promise(r=>release=r);
++   await x.page.locator('.cw-item').click();await pause(100);await logout(x.page);await login(x.page,'bob');release();await pause(180);
++   assert.equal(await x.page.evaluate(()=>current.title),null);assert.deepEqual(await x.page.evaluate(()=>AniWired.readHistory()),{});
++  },{signed:true});
++  await check('late history response cannot mutate the next account',async x=>{
++   x.remote.alice['private-alice']=item('private-alice');let release;x.control.holdGet=new Promise(r=>release=r);
++   const old=x.page.evaluate(()=>AniWired.syncProgress(true));await pause(80);await logout(x.page);await login(x.page,'bob');release();await old;
++   assert.deepEqual(await x.page.evaluate(()=>AniWired.readHistory()),{});
++  },{signed:true});
++  await check('old 401 cannot sign out the new account',async x=>{
++   let release;x.control.hold401=new Promise(r=>release=r);const old=x.page.evaluate(()=>AniWired.apiCall('/api/old-401').catch(e=>e.message));await pause(60);
++   await logout(x.page);await login(x.page,'bob');release();assert.match(await old,/stale response/);assert.equal(await x.page.evaluate(()=>localStorage.getItem('aw:token')),'synthetic-bob');
++  },{signed:true});
++  await check('deleted item is not restored by queued PUT or pagehide',async x=>{
++   await start(x);await x.page.evaluate(()=>showHome(false));await x.page.locator('.cw-x').click();await x.page.waitForFunction(()=>!AniWired.readHistory()['al-1']);
++   await x.page.evaluate(()=>{dispatchEvent(new Event('pagehide'));document.dispatchEvent(new Event('visibilitychange'))});await pause(120);
++   const deletion=x.calls.findIndex(c=>c.method==='DELETE'&&c.path==='/api/progress/al-1');assert.ok(deletion>=0);
++   assert.equal(x.calls.slice(deletion+1).some(c=>c.method==='PUT'&&c.body?.item?.id==='al-1'),false);assert.equal(x.remote.alice['al-1'],undefined);
++  },{signed:true});
++  await check('DELETE waits for dispatched PUT and wins after it completes',async x=>{
++   let release;x.control.holdPut=new Promise(r=>release=r);await start(x);
++   await x.page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new Event('visibilitychange'));showHome(false)});
++   for(let i=0;i<50&&!x.calls.some(c=>c.method==='PUT');i++)await pause(20);assert.ok(x.calls.some(c=>c.method==='PUT'));
++   await x.page.locator('.cw-x').click();await pause(100);assert.equal(x.calls.some(c=>c.method==='DELETE'),false);
++   release();await x.page.waitForFunction(()=>!AniWired.readHistory()['al-1']);assert.deepEqual(x.completed.filter(c=>c.id==='al-1').map(c=>c.method),['PUT','DELETE']);
++  },{signed:true});
++  await check('failed deletion retains local history rather than claiming success',async x=>{
++   await seed(x.page,[item()]);x.control.failDelete=true;await x.page.locator('.cw-x').click();await pause(150);assert.ok(await x.page.evaluate(()=>AniWired.readHistory()['al-1']));
++  },{signed:true});
++  await check('failed removal survives reload and is replayed before any upload',async x=>{
++   await seed(x.page,[item()]);x.remote.alice['al-1']=item();x.control.failDelete=true;
++   await x.page.locator('.cw-x').click();await pause(150);
++   assert.ok(await x.page.evaluate(()=>localStorage.getItem('aw:history:deletions:user:alice')));
++   await x.page.evaluate(()=>AniWired.syncProgress(true));assert.equal(writes(x).length,0);
++   x.control.failDelete=false;await x.page.reload();await x.page.waitForFunction(()=>!!window.AniWired&&AniWired.user?.id==='alice'&&!AniWired.readHistory()['al-1']);
++   assert.equal(x.remote.alice['al-1'],undefined);assert.equal(await x.page.evaluate(()=>localStorage.getItem('aw:history:deletions:user:alice')),null);
++   assert.equal(writes(x).length,0);
++  },{signed:true});
++  await check('clear history cancels queued snapshots and cannot be undone by pagehide',async x=>{
++   await start(x);await x.page.evaluate(()=>{showHome(false);AniWired.goProfile()});await x.page.locator('#pfClear').click();await x.page.waitForFunction(()=>!Object.keys(AniWired.readHistory()).length);
++   await x.page.evaluate(()=>dispatchEvent(new Event('pagehide')));await pause(100);const deletion=x.calls.findIndex(c=>c.method==='DELETE'&&c.path==='/api/progress');assert.ok(deletion>=0);
++   assert.equal(x.calls.slice(deletion+1).some(c=>['PUT','POST'].includes(c.method)&&c.path.startsWith('/api/progress')),false);
++  },{signed:true});
++  await check('failed clear survives reload and blocks writes until server acknowledgement',async x=>{
++   await seed(x.page,[item()]);x.remote.alice['al-1']=item();x.control.failDelete=true;
++   await x.page.evaluate(()=>AniWired.goProfile());await x.page.locator('#pfClear').click();await pause(150);
++   assert.equal(await x.page.evaluate(()=>JSON.parse(localStorage.getItem('aw:history:deletions:user:alice')).clear),true);
++   x.control.failDelete=false;await x.page.reload();await x.page.waitForFunction(()=>!!window.AniWired&&AniWired.user?.id==='alice'&&!Object.keys(AniWired.readHistory()).length);
++   assert.deepEqual(x.remote.alice,{});assert.equal(writes(x).length,0);
++  },{signed:true});
++  await check('unchanged snapshots with multiple watched episodes do not keep saving',async x=>{
++   await start(x);const stamps=[];for(let i=0;i<3;i++){stamps.push(await x.page.evaluate(()=>{saveProgress();return AniWired.readHistory()['al-1'].ts}));await pause(30)}assert.equal(new Set(stamps).size,1);
++  },{signed:true});
++  await check('bulk upload sends all 205 items in bounded batches',async x=>{
++   await seed(x.page,Array.from({length:205},(_,i)=>item('al-'+i)));await x.page.evaluate(()=>AniWired.syncProgress());const bulk=x.calls.filter(c=>c.path==='/api/progress/bulk');assert.deepEqual(bulk.map(c=>c.body.items.length),[200,5]);assert.equal(Object.keys(x.remote.alice).length,205);
++  },{signed:true});
++  console.log(JSON.stringify({passed:passed.length,checks:passed},null,2));
++ }finally{await browser.close()}
++})().catch(e=>{console.error(e);process.exit(1)});
+--- /dev/null
++++ b/tests/schema-preflight.test.cjs
+@@ -0,0 +1,7 @@
++const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const {spawnSync}=require('node:child_process');
++const u=['id','username','display_name','password_hash','created_at','history_public','profile_public'];
++const p=['user_id','anime_id','name','poster','episode_idx','quality','time_sec','duration_sec','ep_label','ep_total','source','seen_json','updated_at'];
++function run(users,progress){const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'aw-schema-'));try{const a=path.join(tmp,'u.json'),b=path.join(tmp,'p.json');fs.writeFileSync(a,JSON.stringify([{results:users.map(name=>({name}))}]));fs.writeFileSync(b,JSON.stringify([{results:progress.map(name=>({name}))}]));return spawnSync(process.execPath,['scripts/check-schema.cjs',a,b],{encoding:'utf8'})}finally{fs.rmSync(tmp,{recursive:true,force:true})}}
++test('preflight plans known v6/v7 upgrades without executing SQL',()=>{const r=run(u,p);assert.equal(r.status,0);assert.match(r.stdout,/run migrate-v6.sql once/);assert.match(r.stdout,/run migrate-v7.sql once/);assert.match(r.stdout,/No SQL executed/)});
++test('preflight warns not to rerun migrations on current schema',()=>{const r=run([...u,'token_epoch'],[...p,'kodik_json']);assert.equal(r.status,0);assert.match(r.stdout,/do not rerun migrate-v6/);assert.match(r.stdout,/do not rerun migrate-v7/)});
++test('preflight stops on unsupported email-based or incomplete schema',()=>{const r=run(['id','email','password_hash','created_at'],p);assert.equal(r.status,1);assert.match(r.stderr,/STOP/)});
+--- a/tests/sync-browser.cjs
++++ b/tests/sync-browser.cjs
+@@ -7,7 +7,7 @@
+  page.on('pageerror',e=>errors.push(e.message));
+  const remote={id:'al-178789',idx:13,time:1338,duration:1440,source:'kodik',name:'Remote title',epTotal:24,ts:Date.now(),seen:[13],kodik:{mal:123,translation:609,season:2}};
+  let authOffline=false, failWrite=true;
+- await context.addInitScript(()=>localStorage.setItem('aw:token','mock-auth'));
++ await context.addInitScript(()=>{if(window===top)localStorage.setItem('aw:token','mock-auth')});
+  await context.route('**/*',async r=>{
+   const req=r.request(),url=req.url();
+   if(url.includes('/api/auth/me')){
+@@ -39,7 +39,7 @@
+  await page.evaluate(()=>saveProgress());
+  await page.evaluate(()=>openKodikTitle({id:'al-2',_kodik:true,_mal:2,_eps:12,_epsTotal:12,name:{main:'Second remote title'},poster:{src:''}}));
+  // A seeded history row avoids the intentionally preserved 30-second history threshold.
+- await page.evaluate(()=>{const h=AniWired.readHistory();h['al-2']={id:'al-2',idx:0,source:'kodik',time:10,ts:1,seen:[0]};localStorage.setItem('aniwired:history',JSON.stringify(h))});
++ await page.evaluate(()=>{const h=AniWired.readHistory();h['al-2']={id:'al-2',idx:0,source:'kodik',time:10,ts:1,seen:[0]};localStorage.setItem(AniWired.historyKey,JSON.stringify(h))});
+  await page.waitForTimeout(70);await send({key:'kodik_player_video_link',value:{episode:1,translation:{id:888}}});
+  await send({key:'kodik_player_time_update',value:45});await page.evaluate(()=>saveProgress());
+  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new Event('visibilitychange'));});
+--- a/worker/worker.js
++++ b/worker/worker.js
+@@ -103,14 +103,22 @@
+ }
+ 
+ async function verifyJWT(token, secret) {
+-  if (!token || token.split('.').length !== 3) return null;
+-  const [h, p, s] = token.split('.');
+-  const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), bytesFromB64url(s), TE.encode(h + '.' + p));
+-  if (!ok) return null;
+-  let payload;
+-  try { payload = JSON.parse(stringFromB64url(p)); } catch { return null; }
+-  if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+-  return payload;
++  try {
++    if (!token || token.split('.').length !== 3) return null;
++    const [h, p, signature] = token.split('.');
++    const header = JSON.parse(stringFromB64url(h));
++    if (!header || header.alg !== 'HS256' || header.typ !== 'JWT') return null;
++    const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), bytesFromB64url(signature), TE.encode(h + '.' + p));
++    if (!ok) return null;
++    const payload = JSON.parse(stringFromB64url(p));
++    if (!payload || typeof payload.sub !== 'string' || !payload.sub ||
++        !Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000) ||
++        !Number.isInteger(payload.epoch ?? 0) || (payload.epoch ?? 0) < 0) return null;
++    return payload;
++  } catch (_) {
++    // Malformed base64/JSON/signatures are credentials failures, not HTTP 500.
++    return null;
++  }
+ }
+ 
+ const PBKDF2_ITER = 100000;
+@@ -251,14 +259,8 @@
+ 
+ async function loadUserRow(env, column, value) {
+   const cols = 'id, username, display_name, created_at, history_public, profile_public';
+-  try {
+-    return await env.DB.prepare(`SELECT ${cols} FROM users WHERE ${column} = ?1`).bind(value).first();
+-  } catch (_) {
+-    const row = await env.DB.prepare(
+-      `SELECT id, username, display_name, created_at FROM users WHERE ${column} = ?1`).bind(value).first();
+-    if (row) { row.history_public = 1; row.profile_public = 1; }
+-    return row;
+-  }
++  // Missing privacy columns must never silently turn a private profile public.
++  return env.DB.prepare(`SELECT ${cols} FROM users WHERE ${column} = ?1`).bind(value).first();
+ }
+ 
+ const publicUser = (row) => ({
+@@ -269,8 +271,8 @@
+ });
+ 
+ const settingsOf = (row) => ({
+-  historyPublic: row.history_public == null ? true : !!row.history_public,
+-  profilePublic: row.profile_public == null ? true : !!row.profile_public,
++  historyPublic: row.history_public === 1,
++  profilePublic: row.profile_public === 1,
+ });
+ 
+ function statsOf(items) {
+@@ -412,8 +414,11 @@
+ 
+   try {
+     const row = await env.DB.prepare('SELECT token_epoch FROM users WHERE id = ?1').bind(payload.sub).first();
+-    if (row && (row.token_epoch || 0) > (payload.epoch || 0)) return null;
++    if (!row || !Number.isInteger(row.token_epoch) || row.token_epoch !== (payload.epoch ?? 0)) return null;
+   } catch (_) {
++    const error = new Error('Authentication state is unavailable');
++    error.code = 'auth.state_unavailable';
++    throw error;
+   }
+ 
+   return {
+@@ -471,15 +476,6 @@
+     .run();
+ }
+ 
+-async function tokenEpochOf(env, userId) {
+-  try {
+-    const row = await env.DB.prepare('SELECT token_epoch FROM users WHERE id = ?1').bind(userId).first();
+-    return (row && row.token_epoch) || 0;
+-  } catch (_) {
+-    return 0;
+-  }
+-}
+-
+ const KODIK_API_HOSTS_DEFAULT = ['kodik-api.com', 'kodikapi.com'];
+ const KODIK_ADD_SCRIPT = 'https://kodik-add.com/add-players.min.js?v=2';
+ const KODIK_TOKEN_TTL_MS = 6 * 60 * 60 * 1000;
+@@ -638,7 +634,12 @@
+ 
+   let body = {};
+   if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
+-    try { body = await request.json(); } catch { body = {}; }
++    if (request.body) {
++      try { body = await request.json(); } catch { return fail('Invalid JSON body', 400, 'request.invalid_json'); }
++      if (!body || typeof body !== 'object' || Array.isArray(body)) {
++        return fail('JSON body must be an object', 400, 'request.invalid_body');
++      }
++    }
+   }
+ 
+   if (path === '/api/auth/register' && method === 'POST') {
+@@ -660,7 +661,8 @@
+       .bind(id, username, raw, await hashPassword(password), Date.now()).run();
+ 
+     const token = await signJWT({ sub: id, username, epoch: 0 }, requireSecret(env), TOKEN_TTL_SECONDS);
+-    return json({ token, user: { id, username, displayName: raw } }, 201);
++    const row = await loadUserRow(env, 'id', id);
++    return json({ token, user: { id, username, displayName: raw }, settings: settingsOf(row) }, 201);
+   }
+ 
+   if (path === '/api/auth/login' && method === 'POST') {
+@@ -672,7 +674,7 @@
+     if (!username || !password) return fail('Username and password are required', 422, 'auth.missing_credentials');
+ 
+     const row = await env.DB.prepare(
+-      'SELECT id, username, display_name, password_hash FROM users WHERE username = ?1').bind(username).first();
++      'SELECT id, username, display_name, password_hash, token_epoch, history_public, profile_public FROM users WHERE username = ?1').bind(username).first();
+     if (!row || !(await checkPassword(password, row.password_hash))) {
+       return fail('Wrong username or password', 401, 'auth.bad_credentials');
+     }
+@@ -684,9 +686,9 @@
+     }
+ 
+     const token = await signJWT(
+-      { sub: row.id, username: row.username, epoch: await tokenEpochOf(env, row.id) },
++      { sub: row.id, username: row.username, epoch: row.token_epoch },
+       requireSecret(env), TOKEN_TTL_SECONDS);
+-    return json({ token, user: { id: row.id, username: row.username, displayName: row.display_name || row.username } });
++    return json({ token, user: { id: row.id, username: row.username, displayName: row.display_name || row.username }, settings: settingsOf(row) });
+   }
+ 
+   const user = await requireUser(request, env);
+@@ -720,14 +722,11 @@
+     }
+ 
+     const hash = await hashPassword(newPassword);
+-    let epoch = 0;
+-    try {
+-      epoch = (await tokenEpochOf(env, user.id)) + 1;
+-      await env.DB.prepare('UPDATE users SET password_hash = ?2, token_epoch = ?3 WHERE id = ?1')
+-        .bind(user.id, hash, epoch).run();
+-    } catch (_) {
+-      await env.DB.prepare('UPDATE users SET password_hash = ?2 WHERE id = ?1').bind(user.id, hash).run();
+-    }
++    const changed = await env.DB.prepare(
++      'UPDATE users SET password_hash = ?2, token_epoch = token_epoch + 1 WHERE id = ?1 RETURNING token_epoch')
++      .bind(user.id, hash).first();
++    if (!changed) return fail('Unauthorized', 401, 'auth.unauthorized');
++    const epoch = changed.token_epoch;
+ 
+     const token = await signJWT({ sub: user.id, username: user.username, epoch }, requireSecret(env), TOKEN_TTL_SECONDS);
+     return json({ ok: true, token });
+@@ -735,12 +734,10 @@
+ 
+   if (path === '/api/auth/logout-all' && method === 'POST') {
+     if (!user) return fail('Unauthorized', 401, 'auth.unauthorized');
+-    try {
+-      await env.DB.prepare('UPDATE users SET token_epoch = ?2 WHERE id = ?1')
+-        .bind(user.id, (await tokenEpochOf(env, user.id)) + 1).run();
+-    } catch (_) {
+-      return fail('Run: wrangler d1 execute aniwired --remote --file=./migrate-v6.sql', 500, 'db.migration_required');
+-    }
++    const changed = await env.DB.prepare(
++      'UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?1 RETURNING token_epoch')
++      .bind(user.id).first();
++    if (!changed) return fail('Unauthorized', 401, 'auth.unauthorized');
+     return json({ ok: true });
+   }
+ 
+@@ -853,6 +850,9 @@
+     }
+ 
+     if (method === 'PUT') {
++      if (typeof body.historyPublic !== 'boolean' || typeof body.profilePublic !== 'boolean') {
++        return fail('Privacy settings must be booleans', 422, 'settings.invalid');
++      }
+       const historyPublic = body.historyPublic ? 1 : 0;
+       const profilePublic = body.profilePublic ? 1 : 0;
+       try {
+@@ -860,7 +860,7 @@
+           'UPDATE users SET history_public = ?2, profile_public = ?3 WHERE id = ?1')
+           .bind(user.id, historyPublic, profilePublic).run();
+       } catch (_) {
+-        return fail('Privacy columns are missing. Run: wrangler d1 execute aniwired --remote --file=./schema.sql', 500);
++        return fail('Privacy settings could not be saved', 503, 'settings.unavailable');
+       }
+       return json({ ok: true, settings: { historyPublic: !!historyPublic, profilePublic: !!profilePublic } });
+     }
+@@ -1108,7 +1108,11 @@
+           console.error('AniWired config error:', message);
+           return done(fail('Server is not configured correctly', 500, 'server.misconfigured'));
+         }
+-        return done(fail('Server error: ' + message, 500, 'server.error'));
++        if (err && err.code === 'auth.state_unavailable') {
++          return done(fail('Authentication is temporarily unavailable. Try again later.', 503, err.code));
++        }
++        console.error('AniWired API error:', message);
++        return done(fail('An internal error occurred', 500, 'server.error'));
+       }
+     }
+ 

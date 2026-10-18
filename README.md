@@ -7,29 +7,45 @@ accounts, cross-device watch-history sync, comments, and friends.
 > Private project: search indexing is disabled on purpose (`robots.txt`),
 > while messenger crawlers stay allowed so shared links unfold into cards.
 
-## Player / responsive fixes (v7.1)
+## Planning list and discovery update (v8)
 
-See [UPDATE-v7.1-RU.md](UPDATE-v7.1-RU.md) first for the latest dub/Return fixes.
-
-**Upgrading from v7 to v7.1 needs no new migration. Older installations must run `migrate-v7.sql` once before deploying this Worker.**
-See [UPDATE-RU.md](UPDATE-RU.md) for upgrade steps, test results and limitations.
+**Existing v7 installations must back up D1 and run `migrate-v8.sql` once before deploying this Worker.**
+See [UPDATE-RU.md](UPDATE-RU.md) for safe schema preflight, upgrade steps and limitations.
+See [CHANGES-RU.md](CHANGES-RU.md) for the feature summary, cleanup and verification scope.
 Fresh databases use the updated `schema.sql` instead.
 
 ## Features
 
+- **Private planning list** — Planned / Watching / Completed / On hold / Dropped,
+  independent from history. Add directly from catalog cards or title details;
+  filter and change status in My list. Guest data stays on the device; signed-in
+  edits have a durable local retry queue and synchronize with the account.
+- **Catalog filters** — year, format, release status and ordering, combined with
+  genre/search in remote AniList queries. Includes pagination, reset and a mobile
+  disclosure. Filtered results use the extended AniList/Kodik catalog, not a
+  client-side filter over the latest AniLibria releases.
+- **Spoiler comments** — optional author flag; native, keyboard-accessible
+  disclosure hides the body on both title pages and public profiles.
+- **Undo history deletion** — six-second grace period before a per-title DELETE;
+  the pending action survives reload. Bulk clear still requires confirmation.
+
 - **Accounts and auth** - sign up with a username and password (no email).
-  Passwords are hashed with PBKDF2-SHA256 at 210k iterations (WebCrypto);
+  Passwords are hashed with PBKDF2-SHA256 at 100k iterations (WebCrypto);
   sessions are HS256 JWTs with sliding renewal and instant revocation via
   `users.token_epoch`.
-- **Watch-history sync** - every title stores episode, timecode, duration,
+- **Watch-history sync** - local histories/checkpoints are scoped to user IDs,
+  with a separate guest store. Old unscoped history is retained for explicit,
+  confirmed import/backup instead of silently assigned to the next account.
+  Every title stores episode, timecode, duration,
   quality, source, and the watched-episode set. Writes to D1 are debounced to
   25 s and skipped when nothing changed; pause / seek / episode end / tab close
   flush immediately. Server-side merging is last-write-wins with a union of
   watched episodes, so an offline device never loses progress.
 - **Two player sources** - AniLibria (built-in HLS player) and Kodik (embedded
-  iframe). Kodik is reached through a server-side proxy, so its token never
-  reaches the browser and the API host is auto-discovered from Kodik's own
-  loader script.
+  iframe). Title lookup is proxied server-side; the current player flow still
+  sends a token to the browser. Do not configure a privileged server-only
+  Kodik key until this integration is redesigned. The API host is discovered
+  from Kodik's loader script.
 - **Social** - comments under every title, public profiles at `/u/<nickname>`,
   one-directional follows with mutual follows shown as friends, and
   server-enforced privacy switches (hide profile, hide watch history).
@@ -40,7 +56,9 @@ Fresh databases use the updated `schema.sql` instead.
   SPA fallback: `/`, `/title/<id>`, `/profile`, `/genre/<name>`,
   `/u/<nickname>`, `/top/best`, `/top/popular`, `/random`.
 - **Security hardening** - CORS origin allowlist, strict security headers and
-  CSP on every response, per-IP / per-account rate limiting stored in D1.
+  CSP on Worker responses, static-asset headers configured separately, and
+  per-IP / per-account rate limiting stored in D1. Deployment headers and
+  concurrent rate limiting still require the follow-up audit fixes.
 
 ## Tech stack
 
@@ -64,8 +82,12 @@ Fresh databases use the updated `schema.sql` instead.
 │   └── og.jpg           # Open Graph card image
 ├── worker/
 │   └── worker.js        # backend: JWT auth, REST API, Kodik proxy, static assets
-├── schema.sql           # full D1 schema (idempotent; all a fresh install needs)
-├── migrate-v6.sql       # one-time upgrade for databases created before v6
+├── schema.sql           # fresh-install schema; NOT an upgrade script
+├── migrate-v6.sql       # one-time upgrade for documented nickname schema
+├── migrate-v7.sql       # one-time addition of progress.kodik_json
+├── migrate-v8.sql       # spoilers + private planning list (existing v7 only)
+├── scripts/check-schema.cjs # read-only preflight using PRAGMA JSON
+├── UPDATE-RU.md         # migration and rollback instructions
 ├── wrangler.toml        # Worker config: assets binding + D1 binding
 ├── package.json         # npm scripts (dev / deploy / db / secret)
 └── .dev.vars.example    # local-secrets template (copy to .dev.vars)
@@ -75,7 +97,7 @@ Fresh databases use the updated `schema.sql` instead.
 
 ### Prerequisites
 
-- Node.js 18+ and npm
+- Node.js 22.13+ (Node 24 LTS recommended) and npm
 - A Cloudflare account (the free tier is enough: Workers 100k requests/day,
   D1 5 GB storage and 5M row reads/day)
 
@@ -95,8 +117,9 @@ npm run db:local    # wrangler d1 execute aniwired --local  --file=./schema.sql
 npm run db:remote   # wrangler d1 execute aniwired --remote --file=./schema.sql
 ```
 
-`schema.sql` is idempotent and already contains every table, so it is all a
-fresh install needs.
+`schema.sql` contains all tables for a fresh installation. Re-running it
+does not add missing columns to existing tables; use the migration preflight
+for an existing database.
 
 ### 3. Set the JWT secret
 
@@ -135,20 +158,38 @@ npm run deploy
 
 ## Database migrations
 
-`schema.sql` always describes the current schema and is safe to re-run.
-Migrations are only needed for databases created by an older release:
+`schema.sql` describes a fresh database. `CREATE TABLE IF NOT EXISTS` does
+not upgrade an existing table. Do not deploy the fail-closed authentication
+changes against an unverified older schema.
 
-| File             | When to run                                                          |
-|------------------|----------------------------------------------------------------------|
-| `migrate-v6.sql` | Once, on pre-v6 databases: adds the `auth_attempts` table (rate limiting) and `users.token_epoch` (token revocation) |
+Read [UPDATE-RU.md](UPDATE-RU.md) first. The supplied migrations are **one-time**:
+
+| File | Applies only when |
+|---|---|
+| `migrate-v6.sql` | Nickname/privacy schema already exists but `users.token_epoch` is absent |
+| `migrate-v7.sql` | All v6 progress columns exist but `progress.kodik_json` is absent |
+| `migrate-v8.sql` | Existing v7 schema, `comments.spoiler` and `watchlist` are absent |
+
+An older **email-based** schema needs a separate, data-aware migration; these
+scripts must not be used to guess nickname mappings. Missing revocation data
+now prevents authorization (503), rather than silently accepting old tokens.
+
+## Local verification
 
 ```bash
-npx wrangler d1 execute aniwired --remote --file=./migrate-v6.sql
+npm ci
+npx playwright install chromium
+npm run check
+npm test
+# In a separate terminal, serve public/ on http://127.0.0.1:8787:
+python3 -m http.server 8787 --bind 127.0.0.1 --directory public
+# Then run browser regression tests (all providers/APIs are mocked):
+npm run test:browser
 ```
 
-The Worker degrades gracefully while a migration is missing (rate limiting
-fails open, revocation checks are skipped) and its error responses name the
-file to run.
+For a system Chromium, set `CHROMIUM_PATH` to its executable. Node tests use
+SQLite in memory; these are not a substitute for workerd/D1 staging tests.
+Do not point the browser fixtures at production.
 
 ## API reference
 
@@ -157,13 +198,15 @@ All routes live under `/api`; authenticated routes expect
 
 | Method | Path | Auth | Body / result |
 |---|---|---|---|
-| POST | `/api/auth/register` | - | `{username,password}` → `{token,user}` |
-| POST | `/api/auth/login` | - | `{username,password}` → `{token,user}` |
+| POST | `/api/auth/register` | - | `{username,password}` → `{token,user,settings}` |
+| POST | `/api/auth/login` | - | `{username,password}` → `{token,user,settings}` |
 | GET | `/api/auth/me` | Bearer | `{user, settings}` (+ rotated `token` when close to expiry) |
 | PUT | `/api/auth/password` | Bearer | `{currentPassword,newPassword}` → `{ok,token}`, signs out other devices |
 | POST | `/api/auth/logout-all` | Bearer | `{ok:true}`, revokes every issued token |
 | DELETE | `/api/account` | Bearer | `{password}` → `{ok,deleted}`, cascades to all data |
 | GET | `/api/account/export` | Bearer | full JSON takeout of the account |
+| GET | `/api/watchlist` | Bearer | Private list, including removal tombstones |
+| PUT | `/api/watchlist/<id>` | Bearer | `{name,poster,status,ts}`; status may be `removed` |
 | GET | `/api/progress` | Bearer | `{items:[...]}` |
 | GET | `/api/progress/last` | Bearer | `{item}` |
 | PUT | `/api/progress` | Bearer | `{item}` → upsert (merges the watched-episode set) |

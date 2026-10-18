@@ -1,0 +1,23 @@
+{
+  "passed": 18,
+  "checks": [
+    "login keeps private settings and changing history does not expose profile",
+    "old login API fetches real settings through auth/me",
+    "legacy and guest history are never silently uploaded into an account",
+    "guest history is imported only after explicit confirmation",
+    "pre-update import is explicit and keeps the original backup",
+    "damaged legacy records are normalized without crashing the history UI",
+    "Alice history and failed uploads stay out of Bob account; caches are scoped",
+    "delayed resume cannot open the previous account title after switching identity",
+    "late history response cannot mutate the next account",
+    "old 401 cannot sign out the new account",
+    "deleted item is not restored by queued PUT or pagehide",
+    "DELETE waits for dispatched PUT and wins after it completes",
+    "failed deletion retains local history rather than claiming success",
+    "failed removal survives reload and is replayed before any upload",
+    "clear history cancels queued snapshots and cannot be undone by pagehide",
+    "failed clear survives reload and blocks writes until server acknowledgement",
+    "unchanged snapshots with multiple watched episodes do not keep saving",
+    "bulk upload sends all 205 items in bounded batches"
+  ]
+}

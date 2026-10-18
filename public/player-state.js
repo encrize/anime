@@ -27,12 +27,6 @@
     else u.searchParams.delete('start_from');
     return u.href;
   }
-  // Playback recency and preference recency are different clocks. A stale
-  // resume card must not override a more recent local translation choice.
-  function translationPreference(...snapshots){
-    return snapshots.filter(x => positive(x?.kodik?.translation))
-      .sort((a,b) => (b.kodik.translationTs || b.ts || 0) - (a.kodik.translationTs || a.ts || 0))[0]?.kodik || {};
-  }
   function parseEvent(raw){
     let d = raw;
     if(typeof d === 'string') { try { d = JSON.parse(d); } catch(_) { return null; } }
@@ -61,7 +55,26 @@
     }
     return out;
   }
-  const api = { trustedOrigin, positive, safeLink, playerUrl, parseEvent, translationPreference };
+  // Local persistence only: a stale Continue-watching card must not override
+  // a newer selection checkpoint (including a one-episode movie/special).
+  // An explicit caller-supplied resume without ts remains an intentional seek.
+  function restoreState(history, checkpoint, resume){
+    const candidates = [history, checkpoint, resume].filter(x => x && typeof x === 'object');
+    candidates.sort((a,b) => {
+      const stamp = x => x === resume && x.ts == null ? Infinity : (Number.isFinite(Number(x.ts)) ? Number(x.ts) : 0);
+      return stamp(a) - stamp(b);
+    });
+    const state = Object.assign({}, candidates[candidates.length - 1] || {});
+    const prefs = {};
+    for(const saved of candidates){
+      const k = saved.kodik || {};
+      for(const key of ['mal','season','translation']) if(positive(k[key])) prefs[key] = positive(k[key]);
+      if(safeLink(k.link)) prefs.link = safeLink(k.link);
+    }
+    state.kodik = prefs;
+    return state;
+  }
+  const api = { trustedOrigin, positive, safeLink, playerUrl, parseEvent, restoreState };
   if(typeof module === 'object' && module.exports) module.exports = api;
   else root.AWPlayer = api;
 })(typeof window === 'object' ? window : globalThis);

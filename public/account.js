@@ -4,8 +4,34 @@
     /* config */
     const API_BASE  = (localStorage.getItem('aw:api') || '').replace(/\/$/, '');
     const TOKEN_KEY = 'aw:token';
-    const HIST_KEY  = 'aniwired:history';   // { [animeId]: item }
-    const LAST_KEY  = STORE;                // 'aniwired:last' - legacy compatibility
+    const HISTORY_BASE = 'aniwired:history';
+    const CHECKPOINT_BASE = 'aw:kodik:checkpoints';
+    // Never assign the old unscoped keys to whoever signs in next. They are
+    // retained, untouched, for a deliberate export/import by their owner.
+    let scope = localStorage.getItem(TOKEN_KEY) ? null : 'guest';
+    let sessionGeneration = 0, historyRevision = 0;
+    const storageKey = base => scope ? base + ':' + scope : null;
+    const progressRequests = new Set();
+    const suppressedTitles = new Set(), deletingTitles = new Set();
+    let clearingHistory = false, deletionFlight = null;
+    const DELETE_BASE = 'aw:history:deletions';
+    function deletionJournal(){
+      if(!scope) return {clear:false, ids:[]};
+      try{
+        const saved = JSON.parse(localStorage.getItem(storageKey(DELETE_BASE)) || '{}');
+        return {clear:saved?.clear === true, ids:Array.isArray(saved?.ids) ? saved.ids.map(String) : []};
+      }catch(_){ return {clear:false, ids:[]}; }
+    }
+    function writeDeletionJournal(state){
+      const key = storageKey(DELETE_BASE);
+      if(!key) return;
+      if(!state.clear && !state.ids.length) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(state));
+    }
+    function deletionPending(id){
+      const state = deletionJournal();
+      return state.clear || state.ids.includes(String(id));
+    }
 
     let user  = null;
     let token = localStorage.getItem(TOKEN_KEY) || '';
@@ -16,7 +42,8 @@
       const headers = { 'Accept':'application/json' };
       if(opts.body !== undefined) headers['Content-Type'] = 'application/json';
       const useAuth = opts.auth !== false;
-      if(useAuth && token) headers['Authorization'] = 'Bearer ' + token;
+      const requestToken = token, generation = sessionGeneration;
+      if(useAuth && requestToken) headers['Authorization'] = 'Bearer ' + requestToken;
       const res = await fetch(API_BASE + path, {
         method: opts.method || 'GET',
         headers,
@@ -25,23 +52,34 @@
       });
       let data = null;
       try{ data = await res.json(); }catch(_){}
-      if(res.status === 401 && useAuth && token){ setToken(''); renderAuthUI(); }
+      if(generation !== sessionGeneration || (useAuth && requestToken !== token)){
+        throw new Error('Session changed; stale response ignored');
+      }
+      if(res.status === 401 && useAuth && requestToken){ setToken(''); renderAuthUI(); }
       if(!res.ok) throw new Error((data && data.error) || ('Request failed (' + res.status + ')'));
       return data || {};
     }
 
+    // Track dispatched writes so a DELETE can be ordered after them. Aborting
+    // fetch alone cannot guarantee that a server has not already committed it.
+    function progressCall(path, opts){
+      const request = apiCall(path, opts);
+      progressRequests.add(request);
+      request.then(() => progressRequests.delete(request), () => progressRequests.delete(request));
+      return request;
+    }
+
     /* local history store */
     function readHistory(){
-      try{ return JSON.parse(localStorage.getItem(HIST_KEY) || '{}') || {}; }catch(_){ return {}; }
+      if(!scope) return {};
+      try{ return JSON.parse(localStorage.getItem(storageKey(HISTORY_BASE)) || '{}') || {}; }catch(_){ return {}; }
     }
     function writeHistory(map){
-      localStorage.setItem(HIST_KEY, JSON.stringify(map));
-      const last = latestItem(map);
-      if(last) localStorage.setItem(LAST_KEY, JSON.stringify(last));
-      else localStorage.removeItem(LAST_KEY);
+      if(!scope) return;
+      localStorage.setItem(storageKey(HISTORY_BASE), JSON.stringify(map));
     }
     function historyList(){
-      return Object.values(readHistory()).filter(Boolean).sort((a,b) => (b.ts||0) - (a.ts||0));
+      return Object.values(readHistory()).filter(it => it && !suppressedTitles.has(String(it.id))).sort((a,b) => (b.ts||0) - (a.ts||0));
     }
     function latestItem(map){
       const arr = Object.values(map || {}).filter(Boolean).sort((a,b) => (b.ts||0) - (a.ts||0));
@@ -64,14 +102,79 @@
       delete map[String(id)];
       writeHistory(map);
     }
-    (function migrate(){
-      const map = readHistory();
-      if(Object.keys(map).length) return;
+    function storedObject(key){
       try{
-        const legacy = JSON.parse(localStorage.getItem(LAST_KEY) || 'null');
-        if(legacy && legacy.id != null){ legacy.id = String(legacy.id); map[legacy.id] = legacy; writeHistory(map); }
-      }catch(_){}
-    })();
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+      }catch(_){ return {}; }
+    }
+    function importableHistory(legacy){
+      const source = storedObject(legacy ? HISTORY_BASE : HISTORY_BASE + ':guest');
+      if(legacy){
+        const last = storedObject(STORE);
+        if(last.id != null && !Object.prototype.hasOwnProperty.call(source, String(last.id))) source[String(last.id)] = last;
+      }
+      const number = value => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
+      return Object.values(source).filter(it => it && typeof it === 'object' &&
+        (typeof it.id === 'string' || typeof it.id === 'number') &&
+        String(it.id).trim().length > 0 && String(it.id).length <= 64 &&
+        !['__proto__','constructor','prototype'].includes(String(it.id))).map(it => ({
+          id:String(it.id), name:String(it.name || 'Untitled').slice(0,300),
+          poster:safePoster(String(it.poster || '')).slice(0,600), idx:number(it.idx),
+          time:number(it.time), duration:number(it.duration), quality:String(it.quality || '').slice(0,32),
+          epLabel:String(it.epLabel ?? (number(it.idx) + 1)).slice(0,32), epTotal:number(it.epTotal),
+          source:it.source === 'kodik' || isKodikId(it.id) ? 'kodik' : 'libria',
+          seen:[...new Set((Array.isArray(it.seen) ? it.seen : []).map(number))].sort((a,b)=>a-b).slice(0,2000),
+          ts:Math.min(number(it.ts), Date.now()),
+          kodik:it.kodik && typeof it.kodik === 'object' ? {
+            mal:AWPlayer.positive(it.kodik.mal), season:AWPlayer.positive(it.kodik.season),
+            translation:AWPlayer.positive(it.kodik.translation), link:AWPlayer.safeLink(it.kodik.link || '')
+          } : undefined
+        }));
+    }
+    function renderLocalImport(){
+      const box = $('#pfLocalImport');
+      if(!box) return;
+      const legacy = importableHistory(true).length > 0;
+      const guest = !!user && importableHistory(false).length > 0;
+      const backup = [HISTORY_BASE, STORE, CHECKPOINT_BASE].some(key => localStorage.getItem(key) !== null);
+      box.classList.toggle('hidden', !legacy && !guest && !backup);
+      $('#importLegacy').classList.toggle('hidden', !legacy);
+      $('#importGuest').classList.toggle('hidden', !guest);
+      $('#exportLegacy').classList.toggle('hidden', !backup);
+      $('#importLegacy').disabled = $('#importGuest').disabled = !scope || (!!user && !settings) || clearingHistory || deletionJournal().clear;
+    }
+    async function importDeviceHistory(legacy){
+      if(!scope || clearingHistory || deletionJournal().clear || (user && !settings)) return;
+      const items = importableHistory(legacy);
+      if(!items.length) return;
+      const target = user ? '@' + user.username : 'guest history on this device';
+      if(!confirm('Import ' + items.length + ' records into ' + target + '? Only continue if these records belong to you.' +
+        (user ? ' They will be synced using this account’s current privacy settings.' : ''))) return;
+      historyRevision++;
+      const map = readHistory();
+      for(const original of items){
+        const id = String(original.id);
+        if(deletingTitles.has(id) || deletionPending(id)) continue;
+        const old = map[id];
+        const seen = [...new Set([...(Array.isArray(old?.seen) ? old.seen : []), ...(Array.isArray(original.seen) ? original.seen : [])])];
+        map[id] = { ...((old?.ts || 0) > (original.ts || 0) ? old : original), id, seen };
+        suppressedTitles.delete(id);
+      }
+      writeHistory(map); renderResume(); renderProfile(); refreshStats();
+      // Keep the originals as a recoverable backup. Never delete or silently
+      // claim ownership of unscoped data during an account transition.
+      toast(user ? 'Imported locally; account sync will retry when available' : 'Imported into guest history on this device');
+      if(user) await syncProgress(true);
+    }
+    $('#importGuest').onclick = () => importDeviceHistory(false);
+    $('#importLegacy').onclick = () => importDeviceHistory(true);
+    $('#exportLegacy').onclick = () => {
+      const data = { history:storedObject(HISTORY_BASE), last:storedObject(STORE), checkpoints:storedObject(CHECKPOINT_BASE) };
+      const href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}));
+      const a = document.createElement('a'); a.href = href; a.download = 'aniwired-pre-update-backup.json';
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(href), 30000);
+    };
 
     /* formatting helpers */
     function fmtLong(sec){
@@ -115,32 +218,33 @@
     // Identity of a snapshot for deduplication purposes.
     const progressSig = it => JSON.stringify([
       it.id, it.idx, it.time, it.duration, it.quality, it.source,
-      it.kodik?.season, it.kodik?.translation, it.kodik?.translationTs, it.kodik?.link, it.kodik?.mal, it.epTotal, it.seen || [],
+      it.kodik?.season, it.kodik?.translation, it.kodik?.link, it.kodik?.mal, it.epTotal, it.seen || [],
     ]);
 
     function pushProgress(item, immediate){
-      if(!token || !item) return;
+      if(!token || !user || !scope || !item || clearingHistory || suppressedTitles.has(String(item.id)) || deletionPending(item.id)) return;
       pendingItem = item;
       const id = String(item.id), previous = pendingWrites.get(id);
       if(!previous || item.ts >= previous.ts) pendingWrites.set(id, item);
       const flush = () => {
         pushTimer = 0;
-        const authToken = token;
+        const authToken = token, generation = sessionGeneration;
         for(const [id, snapshot] of pendingWrites){
+          if(clearingHistory || suppressedTitles.has(id) || deletionPending(id)){ pendingWrites.delete(id); continue; }
+          if(inFlight.has(id)) continue;
           const sig = progressSig(snapshot);
-          // A final, newer snapshot must not wait 25 seconds behind an older request.
-          if(inFlight.has(id) && (!immediate || inFlight.get(id) === sig)) continue;
           if(pushedSigs.get(id) === sig){ pendingWrites.delete(id); continue; }
           pendingWrites.delete(id); inFlight.set(id, sig);
-          apiCall('/api/progress', { method:'PUT', body:{ item:snapshot }, keepalive:!!immediate })
-            .then(() => { if(token === authToken) pushedSigs.set(id, sig); })
+          progressCall('/api/progress', { method:'PUT', body:{ item:snapshot }, keepalive:!!immediate })
+            .then(() => { if(generation === sessionGeneration && token === authToken && !suppressedTitles.has(id)) pushedSigs.set(id, sig); })
             .catch(() => {
-              if(token !== authToken) return;
+              if(generation !== sessionGeneration || token !== authToken || clearingHistory || suppressedTitles.has(id)) return;
               const newer = pendingWrites.get(id);
               if(!newer || newer.ts < snapshot.ts) pendingWrites.set(id, snapshot);
             })
             .finally(() => {
-              if(inFlight.get(id) === sig) inFlight.delete(id);
+              if(generation !== sessionGeneration) return;
+              inFlight.delete(id);
               if(token && pendingWrites.size && !pushTimer) pushTimer = setTimeout(flush, SYNC_DEBOUNCE_MS);
             });
         }
@@ -150,35 +254,48 @@
     }
 
     async function syncProgress(silent){
-      if(!token) return;
+      if(!token || !user || !scope || clearingHistory) return;
+      const started = sessionGeneration;
+      try{ await drainDeletions(); }
+      catch(_){ if(!silent) toast('History removal is pending; reconnect to retry'); return; }
+      if(started !== sessionGeneration) return;
+      const generation = sessionGeneration, revision = historyRevision;
       let serverItems = [];
       try{ serverItems = (await apiCall('/api/progress')).items || []; }
-      catch(_){ if(!silent) toast('Could not reach the sync server'); return; }
+      catch(_){ if(generation === sessionGeneration && !silent) toast('Could not reach the sync server'); return; }
+      if(generation !== sessionGeneration || revision !== historyRevision || clearingHistory) return;
 
       const map = readHistory();
       const toPush = [];
       const seenIds = {};
       for(const s of serverItems){
+        if(suppressedTitles.has(String(s.id))) continue;
         s.id = String(s.id); seenIds[s.id] = true;
         const l = map[s.id];
         if(l){ s.seen = [...new Set([...(l.seen || []), ...(s.seen || [])])].sort((a,b) => a-b); l.seen = s.seen;
-          const choice = AWPlayer.translationPreference(s, l);
-          const merged = { ...(l.kodik || {}), ...(s.kodik || {}) };
-          if(choice.translation){ merged.translation = choice.translation; merged.translationTs = choice.translationTs || 0; }
-          if(s.kodik || l.kodik){ s.kodik = merged; l.kodik = merged; } }
+          if(!s.kodik && l.kodik) s.kodik = l.kodik; }
         if(!l || (l.ts||0) <= (s.ts||0)) map[s.id] = s;
         else toPush.push(l);
       }
-      for(const id in map) if(!seenIds[id]) toPush.push(map[id]);
+      for(const id in map) if(!seenIds[id] && !suppressedTitles.has(id)) toPush.push(map[id]);
 
       writeHistory(map);
       renderResume();
       renderProfile();
       if(toPush.length || failedQueue.length){
-        const items = toPush.concat(failedQueue);
+        const items = toPush.concat(failedQueue).filter(item => !suppressedTitles.has(String(item.id)));
         failedQueue = [];
-        try{ await apiCall('/api/progress/bulk', { method:'POST', body:{ items } }); }
-        catch(_){ failedQueue = items; }
+        try{
+          // The API accepts at most 200 items per request. Never silently drop
+          // the tail of a large local history.
+          for(let i = 0; i < items.length; i += 200){
+            if(generation !== sessionGeneration || revision !== historyRevision || clearingHistory) return;
+            const batch = items.slice(i, i + 200).filter(item => !suppressedTitles.has(String(item.id)));
+            if(batch.length) await progressCall('/api/progress/bulk', { method:'POST', body:{ items:batch } });
+          }
+        }catch(_){
+          if(generation === sessionGeneration && revision === historyRevision) failedQueue = items.filter(item => !suppressedTitles.has(String(item.id)));
+        }
       }
     }
 
@@ -224,7 +341,7 @@
     }
 
     saveProgress = function(){
-      if(!playerLive() || (current.mode !== 'kodik' && (current.libriaRestoring || el.playerWrap.classList.contains('hidden')))) return;
+      if(!scope || clearingHistory || (current.title && (suppressedTitles.has(String(current.title.id)) || deletionPending(current.title.id))) || !playerLive() || (current.mode !== 'kodik' && (current.libriaRestoring || el.playerWrap.classList.contains('hidden')))) return;
       const t     = current.title;
       const idx   = playerIdx();
       const ep    = (current.episodes || [])[idx];
@@ -263,11 +380,13 @@
           same ? (prev.epTotal || 0) : 0),
         source: current.mode || 'libria',
         kodik: kodik
-          ? { mal:(current.malId ?? t._mal ?? null), link:AWPlayer.safeLink(current.kodikLink || ''), season:kodikState.season, translation:kodikState.translation, translationTs:kodikState.translationTs }
+          ? { mal:(current.malId ?? t._mal ?? null), link:AWPlayer.safeLink(current.kodikLink || ''), season:kodikState.season, translation:kodikState.translation }
           : (same ? prev.kodik : undefined),
-        seen: [...new Set([...(prev?.seen || []), idx])].sort((a,b) => a-b),
+        seen: [idx],
         ts: Date.now()
       };
+      // Compare the same merged snapshot that will actually be stored.
+      item.seen = [...new Set([...(prev?.seen || []), ...item.seen])].sort((a,b) => a-b);
       if(prev && progressSig(prev) === progressSig(item)) return;
       putLocal(item);
       renderResume();
@@ -335,20 +454,20 @@
       });
     };
 
-    const kodikState = { key:'', idx:0, time:0, duration:0, season:null, translation:null, translationTs:0, resolvedTranslation:null, confirmed:false };
-    const CHECKPOINT_KEY = 'aw:kodik:checkpoints';
+    const kodikState = { key:'', idx:0, time:0, duration:0, season:null, translation:null, confirmed:false };
     function checkpoints(){
-      try { return JSON.parse(localStorage.getItem(CHECKPOINT_KEY) || '{}') || {}; } catch(_) { return {}; }
+      if(!scope) return {};
+      try { return JSON.parse(localStorage.getItem(storageKey(CHECKPOINT_BASE)) || '{}') || {}; } catch(_) { return {}; }
     }
     function checkpoint(){
-      if(!current.title || current.mode !== 'kodik') return;
+      if(!scope || !current.title || current.mode !== 'kodik' || clearingHistory || suppressedTitles.has(String(current.title.id)) || deletionPending(current.title.id)) return;
       const map = checkpoints();
       map[kodikState.key] = { idx:current.ep || 0, time:kodikState.time, duration:kodikState.duration,
-        kodik:{ mal:current.malId, season:kodikState.season, translation:kodikState.translation, translationTs:kodikState.translationTs,
+        kodik:{ mal:current.malId, season:kodikState.season, translation:kodikState.translation,
           link:current.kodikLink ? AWPlayer.safeLink(withKodikEpisode(current.kodikLink)) : '' }, ts:Date.now() };
       // Keep a bounded local selection cache even before the 30-second history threshold.
       const entries = Object.entries(map).sort((a,b) => b[1].ts - a[1].ts).slice(0,200);
-      try { localStorage.setItem(CHECKPOINT_KEY, JSON.stringify(Object.fromEntries(entries))); } catch(_) {}
+      try { localStorage.setItem(storageKey(CHECKPOINT_BASE), JSON.stringify(Object.fromEntries(entries))); } catch(_) {}
     }
     function paintKodikSelection(){
       $$('.ep', el.episodes).forEach(b => b.classList.toggle('active', +b.dataset.idx === current.ep));
@@ -357,14 +476,11 @@
     }
     function prepareKodik(t, resume){
       const id = String(t.id), local = checkpoints()[id], hist = readHistory()[id];
-      const saved = local && (!hist || local.ts > hist.ts) ? local : hist;
-      const state = resume || saved || {};
-      const prefs = { ...(saved?.kodik || {}), ...(state.kodik || {}) };
-      const choice = AWPlayer.translationPreference(local, hist, resume);
-      if(choice.translation){ prefs.translation = choice.translation; prefs.translationTs = choice.translationTs || 0; }
+      const state = AWPlayer.restoreState(hist, local, resume);
+      const prefs = state.kodik;
       Object.assign(kodikState, { key:id, idx:Math.max(0, Math.floor(state.idx || 0)),
         time:Math.max(0, Math.floor(state.time || 0)), duration:state.duration || 0,
-        season:AWPlayer.positive(prefs.season), translation:AWPlayer.positive(prefs.translation), translationTs:prefs.translationTs || 0, resolvedTranslation:null, confirmed:false });
+        season:AWPlayer.positive(prefs.season), translation:AWPlayer.positive(prefs.translation), confirmed:false });
       current.ep = kodikState.idx; lastPicked = current.ep; current.kodikState = kodikState;
       // Reuse only validated player permalinks; find-player tokens are reacquired.
       const link = prefs.link && AWPlayer.safeLink(prefs.link);
@@ -430,10 +546,6 @@
       saveProgress();
       current.ep = i; lastPicked = i;
       Object.assign(kodikState, { idx:i, time:Math.max(0, Math.floor(startFrom || 0)), duration:0, confirmed:false });
-      if(kodikState.translation && kodikState.resolvedTranslation !== kodikState.translation){
-        paintKodikSelection(); checkpoint(); markSeenEpisodes();
-        window.loadKodik(); return;
-      }
       if(current.kodikLink){
         current.kodikLink = withKodikEpisode(current.kodikLink);
         if(el.embedFrame.getAttribute('src') !== current.kodikLink) el.embedFrame.src = current.kodikLink;
@@ -509,7 +621,7 @@
 
     // Only the active iframe may mutate playback state. Unknown events are inert.
     window.addEventListener('message', e => {
-      if(current.mode !== 'kodik' || current.kodikResolving || !current.title || !current.kodikLink ||
+      if(current.mode !== 'kodik' || !current.title || !current.kodikLink ||
          e.source !== el.embedFrame.contentWindow || !AWPlayer.trustedOrigin(e.origin)) return;
       const event = AWPlayer.parseEvent(e.data);
       if(!event) return;
@@ -522,10 +634,7 @@
         Object.assign(kodikState, { idx:current.ep, time:0, duration:0 });
       }
       if(event.season != null) kodikState.season = event.season;
-      if(event.translation != null && (event.translation !== kodikState.translation || !kodikState.translationTs)){
-        kodikState.translation = event.translation;
-        kodikState.translationTs = Math.max(Date.now(), (kodikState.translationTs || 0) + 1);
-      }
+      if(event.translation != null) kodikState.translation = event.translation;
       if(event.link) current.kodikLink = event.link;
       if(event.time != null) kodikState.time = Math.floor(event.time);
       if(event.duration != null) kodikState.duration = Math.floor(event.duration);
@@ -544,27 +653,127 @@
     });
 
     async function resumeItem(d){
+      const generation = sessionGeneration;
       const viaKodik = d.source === 'kodik' || isKodikId(d.id);
       if(!viaKodik) return openTitle(d.id, { idx:d.idx, quality:d.quality, time:d.time });
       let t = readKodikCache(String(d.id));
       if(!t && !(d.kodik && d.kodik.mal != null)) t = await fetchAniListById(d.id);
+      if(generation !== sessionGeneration) return;
       if(!t) t = kodikTitleFrom(d);
       if(!t._eps && d.epTotal) t._eps = d.epTotal;
-      return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0), duration:d.duration || 0, kodik:d.kodik, ts:d.ts });
+      return openKodikTitle(t, { idx:(d.idx || 0), time:(d.time || 0), duration:d.duration || 0, kodik:d.kodik, ts:d.ts || 0 });
+    }
+    function cancelQueuedProgress(id){
+      pendingWrites.delete(id); pushedSigs.delete(id);
+      if(pendingItem && String(pendingItem.id) === id) pendingItem = null;
+      failedQueue = failedQueue.filter(item => String(item.id) !== id);
+    }
+    function drainDeletions(){
+      if(deletionFlight) return deletionFlight;
+      const generation = sessionGeneration;
+      const run = async () => {
+        // Wait for already-dispatched writes; AbortController alone cannot
+        // undo a server commit. The durable journal survives closing this tab.
+        await Promise.allSettled([...progressRequests]);
+        while(generation === sessionGeneration && scope){
+          const state = deletionJournal();
+          if(!state.clear && !state.ids.length) return;
+          const id = state.clear ? null : state.ids[0];
+          if(token){
+            await apiCall('/api/progress' + (id === null ? '' : '/' + encodeURIComponent(id)), {method:'DELETE'});
+          }
+          if(generation !== sessionGeneration) return;
+          if(id === null){
+            Object.keys(readHistory()).forEach(key => suppressedTitles.add(key));
+            writeHistory({}); localStorage.removeItem(storageKey(CHECKPOINT_BASE));
+            writeDeletionJournal({clear:false, ids:[]});
+          }else{
+            removeLocal(id);
+            const saved = checkpoints(); delete saved[id];
+            localStorage.setItem(storageKey(CHECKPOINT_BASE), JSON.stringify(saved));
+            const next = deletionJournal(); next.ids = next.ids.filter(key => key !== id);
+            writeDeletionJournal(next);
+          }
+        }
+      };
+      deletionFlight = run().finally(() => { if(generation === sessionGeneration) deletionFlight = null; });
+      return deletionFlight;
+    }
+    const UNDO_BASE = 'aw:history:undo';
+    const undoTimers = new Map();
+    function undoRecords(){ return scope ? storedObject(storageKey(UNDO_BASE)) : {}; }
+    function writeUndoRecords(map){ if(scope) localStorage.setItem(storageKey(UNDO_BASE), JSON.stringify(map)); }
+    function clearUndoTimers(){ undoTimers.forEach(clearTimeout); undoTimers.clear(); $('#historyUndo')?.remove(); }
+    function paintUndo(){
+      $('#historyUndo')?.remove();
+      const ids = Object.keys(undoRecords());
+      if(!ids.length) return;
+      const box = document.createElement('div'); box.id = 'historyUndo'; box.className = 'history-undo'; box.setAttribute('role', 'status');
+      const text = document.createElement('span'); text.textContent = ids.length > 1 ? 'Removed (' + ids.length + ')' : 'Removed from history';
+      const btn = document.createElement('button'); btn.type = 'button'; btn.textContent = 'Undo';
+      btn.onclick = () => {
+        const records = undoRecords();
+        for(const id of Object.keys(records)){
+          if(records[id].until <= Date.now()) continue;
+          clearTimeout(undoTimers.get(id)); undoTimers.delete(id); delete records[id];
+          deletingTitles.delete(id); suppressedTitles.delete(id);
+        }
+        writeUndoRecords(records); historyRevision++;
+        paintUndo(); renderResume(); renderProfile(); refreshStats();
+      };
+      box.append(text, btn); document.body.append(box);
+    }
+    function restoreUndo(){
+      for(const id of undoTimers.keys()){ if(!deletionPending(id)){ suppressedTitles.delete(id); deletingTitles.delete(id); } }
+      clearUndoTimers();
+      for(const [id,record] of Object.entries(undoRecords())){
+        suppressedTitles.add(id); deletingTitles.add(id);
+        const generation = sessionGeneration;
+        undoTimers.set(id, setTimeout(() => {
+          if(generation !== sessionGeneration) return;
+          const records = undoRecords(); delete records[id]; writeUndoRecords(records);
+          undoTimers.delete(id); deletingTitles.delete(id); paintUndo(); commitDeleteItem(id);
+        }, Math.max(0, record.until - Date.now())));
+      }
+      paintUndo();
     }
     function deleteItem(id){
-      removeLocal(id);
-      renderResume(); renderProfile(); refreshStats();
-      if(token) apiCall('/api/progress/' + encodeURIComponent(id), { method:'DELETE' }).catch(()=>{});
-      toast('Removed from history');
+      id = String(id);
+      if(!scope || clearingHistory || deletingTitles.has(id)) return;
+      const records = undoRecords(); records[id] = {until:Date.now() + 6000}; writeUndoRecords(records);
+      suppressedTitles.add(id); deletingTitles.add(id); historyRevision++; cancelQueuedProgress(id);
+      restoreUndo(); renderResume(); renderProfile(); refreshStats();
+    }
+    async function commitDeleteItem(id){
+      id = String(id);
+      if(!scope || clearingHistory || deletingTitles.has(id)) return;
+      const generation = sessionGeneration;
+      const journal = deletionJournal(); journal.ids = [...new Set([...journal.ids, id])];
+      writeDeletionJournal(journal);
+      suppressedTitles.add(id); deletingTitles.add(id); historyRevision++;
+      cancelQueuedProgress(id);
+      try{
+        await drainDeletions();
+        if(generation !== sessionGeneration) return;
+        renderResume(); renderProfile(); refreshStats();
+        // The grace-period notice already reported the removal.
+      }catch(_){
+        if(generation === sessionGeneration) toast('Removal pending. Reconnect or try again; progress will not be re-uploaded.');
+      }finally{
+        if(generation === sessionGeneration) deletingTitles.delete(id);
+      }
     }
 
     window.addEventListener('pagehide', () => { saveProgress(); pushProgress(pendingItem || latestItem(readHistory()), true); });
     document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden'){ saveProgress(); pushProgress(pendingItem, true); } });
     window.addEventListener('online', () => { if(token) syncProgress(true); });
     window.addEventListener('storage', e => {
-      if(e.key === HIST_KEY){ renderResume(); renderProfile(); refreshStats(); }
-      if(e.key === TOKEN_KEY){ token = localStorage.getItem(TOKEN_KEY) || ''; bootSession(); }
+      if(e.key === storageKey(UNDO_BASE)){ restoreUndo(); renderResume(); renderProfile(); }
+      if(e.key === storageKey(HISTORY_BASE)){ renderResume(); renderProfile(); refreshStats(); }
+      if(e.key === TOKEN_KEY){
+        setToken(localStorage.getItem(TOKEN_KEY) || '');
+        setIdentity(null); renderAuthUI(); bootSession();
+      }
     });
 
     function markSeenEpisodes(){
@@ -649,6 +858,64 @@
       };
     }
 
+    if(matchMedia('(min-width: 761px)').matches) $('#catalogFilters').open = true;
+    const cf = {year:$('#cfYear'), format:$('#cfFormat'), status:$('#cfStatus'), sort:$('#cfSort'), more:$('#cfMore')};
+    let filterPage = 1, filterItems = [], filterQuery = '', filterBusy = false, filterRequest = 0, filterSnapshot = '';
+    const catalogFilterSnapshot = () => JSON.stringify([cf.year.value,cf.format.value,cf.status.value,cf.sort.value,el.searchInput.value.trim(),activeGenre]);
+    function hasCatalogFilters(){ return !!(cf.year.value || cf.format.value || cf.status.value || cf.sort.value !== 'POPULARITY_DESC'); }
+    async function showFilteredCatalog(q = '', more = false){
+      if(cf.year.value && (!cf.year.checkValidity() || !Number.isInteger(Number(cf.year.value)))){ cf.year.reportValidity(); return; }
+      const generation = more ? filterRequest : ++catalogGeneration;
+      if(more && (filterBusy || generation !== catalogGeneration)) return;
+      if(!more){
+        filterRequest = generation; filterPage = 1; filterItems = []; filterQuery = q; filterSnapshot = catalogFilterSnapshot();
+        hidePub(); pf.section.classList.add('hidden');
+        const keepPlaying = isPlayerLive() && (!el.video.paused || current.mode === 'kodik' || document.pictureInPictureElement);
+        if(el.home.classList.contains('hidden')) _showHome(keepPlaying);
+        clearTop(); hideHero(); updateNav('home');
+        pushRoute(activeGenre ? '/genre/' + encodeURIComponent(activeGenre) : '/', {view:activeGenre ? 'genre' : 'home', genre:activeGenre});
+        document.title = 'Catalog - AniWired';
+        el.results.className = 'grid'; el.rowHead.classList.add('is-grid');
+        el.resultsTitle.textContent = activeGenre ? 'Genre: ' + activeGenre : 'Catalog';
+        el.results.innerHTML = '<div class="spinner"></div>';
+      }
+      filterBusy = true; cf.more.disabled = true; cf.more.classList.add('hidden');
+      el.resultsSub.textContent = 'Extended catalog (AniList) · loading…';
+      const variables = {page:filterPage, sort:[cf.sort.value], search:filterQuery || undefined,
+        genre:activeGenre ? toAniListGenre(activeGenre) : undefined,
+        year:cf.year.value ? Number(cf.year.value) : undefined,
+        formats:cf.format.value ? cf.format.value.split(',') : undefined, status:cf.status.value || undefined};
+      const query = 'query($page:Int,$search:String,$genre:String,$year:Int,$formats:[MediaFormat],$status:MediaStatus,$sort:[MediaSort]){' +
+        'Page(page:$page,perPage:40){pageInfo{hasNextPage} media(type:ANIME,isAdult:false,search:$search,genre:$genre,seasonYear:$year,format_in:$formats,status:$status,sort:$sort){' + AL_FIELDS + '}}}';
+      try{
+        const response = await fetch('https://graphql.anilist.co', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:JSON.stringify({query,variables})});
+        const result = await response.json();
+        if(!response.ok || result.errors || !result.data?.Page) throw new Error('Catalog unavailable');
+        if(generation !== catalogGeneration) return;
+        const data = result.data.Page;
+        filterItems = [...new Map([...filterItems, ...(data.media || []).map(mapAniListMedia)].map(it => [it.id,it])).values()];
+        renderResults(filterItems); filterPage++;
+        el.resultsSub.textContent = 'Extended catalog (AniList) · ' + filterItems.length + ' titles';
+        cf.more.textContent = 'Load more'; cf.more.classList.toggle('hidden', !data.pageInfo?.hasNextPage);
+      }catch(_){
+        if(generation !== catalogGeneration) return;
+        if(!more) el.results.innerHTML = '<p class="hint">Could not load the catalog. Change a filter or retry.</p>';
+        el.resultsSub.textContent = 'Catalog unavailable · try again';
+        cf.more.textContent = 'Retry'; cf.more.classList.remove('hidden');
+      }finally{ if(generation === catalogGeneration){ filterBusy = false; cf.more.disabled = false; } }
+    }
+    window.__awFilteredCatalog = q => { if(!hasCatalogFilters()) return false; showFilteredCatalog(q); return true; };
+    for(const input of [cf.year,cf.format,cf.status,cf.sort]) input.addEventListener('change', () => {
+      if(catalogFilterSnapshot() !== filterSnapshot) showFilteredCatalog(el.searchInput.value.trim());
+    });
+    window.__awCatalogRendered = () => cf.more.classList.add('hidden');
+    cf.more.onclick = () => showFilteredCatalog(filterQuery, filterItems.length > 0);
+    $('#cfReset').onclick = () => {
+      cf.year.value = cf.format.value = cf.status.value = ''; cf.sort.value = 'POPULARITY_DESC';
+      activeGenre = ''; el.searchInput.value = ''; cf.more.classList.add('hidden');
+      renderGenreBar(); showHome(true); loadHome();
+    };
+    // Genre navigation and search share one remote filter request, never a loaded-page-only filter.
     async function fetchGenreTitles(genre){
       const g = toAniListGenre(genre);
       // A known AniList genre is filtered properly; anything else falls back to a search.
@@ -685,6 +952,7 @@
     }
 
     async function showGenre(genre){
+      const catalogRequest = ++catalogGeneration;
       hidePub();
       pf.section.classList.add('hidden');
       const keepPlaying = (typeof isPlayerLive === 'function') && isPlayerLive() &&
@@ -702,8 +970,9 @@
       el.resultsSub.textContent = '';
       el.results.innerHTML = '<div class="spinner"></div>';
 
+      if(hasCatalogFilters()){ showFilteredCatalog(''); return; }
       const list = await fetchGenreTitles(genre);
-      if(activeGenre !== genre) return;                 // user navigated away meanwhile
+      if(activeGenre !== genre || catalogRequest !== catalogGeneration) return;                 // user navigated away meanwhile
       if(!list.length){ el.results.innerHTML = '<p class="hint">Nothing found for this genre.</p>'; return; }
       el.resultsSub.textContent = 'Extended catalog (AniList)';
       renderResults(list);
@@ -799,6 +1068,7 @@
     }
 
     async function showTop(kind){
+      const catalogRequest = ++catalogGeneration;
       const k = TOP_KINDS[kind] ? kind : 'best';
       hidePub();
       pf.section.classList.add('hidden');
@@ -822,7 +1092,7 @@
       el.results.innerHTML = '<div class="spinner"></div>';
 
       const list = await fetchTop(k);
-      if(activeTop !== k) return;                        // user navigated away meanwhile
+      if(activeTop !== k || catalogRequest !== catalogGeneration) return;                        // user navigated away meanwhile
       if(!list.length){ el.results.innerHTML = '<p class="hint">Could not load the chart. Try again in a moment.</p>'; return; }
       el.resultsSub.textContent = TOP_KINDS[k].sub;
       renderResults(list);
@@ -897,6 +1167,10 @@
     };
     let cmAnimeId = '', cmAnimeName = '', cmBusy = false;
 
+    function commentBody(c){
+      const body = '<p class="cm-body">' + escapeHtml(c.body) + '</p>';
+      return c.spoiler ? '<details class="cm-spoiler"><summary>Spoiler · click to reveal</summary>' + body + '</details>' : body;
+    }
     function commentHtml(c){
       const who   = (c.user && (c.user.displayName || c.user.username)) || 'user';
       const uname = (c.user && c.user.username) || '';
@@ -910,7 +1184,7 @@
             '<span class="cm-ago">' + fmtAgo(c.createdAt) + '</span>' +
             (c.mine ? '<button class="cm-del" type="button" data-del="' + escapeHtml(String(c.id)) + '">Delete</button>' : '') +
           '</div>' +
-          '<p class="cm-body">' + escapeHtml(c.body) + '</p>' +
+          commentBody(c) +
         '</div></div>';
     }
 
@@ -928,6 +1202,7 @@
       if(!cmEl.input) return;
       const signed = !!(token && user);
       cmEl.input.disabled = !signed;
+      $('#cmSpoiler').disabled = !signed;
       cmEl.input.placeholder = signed ? 'Share your thoughts about this title\u2026' : 'Sign in to leave a comment';
       cmEl.send.textContent = signed ? 'Post' : 'Sign in';
       cmEl.hint.textContent = signed ? '' : 'Only signed-in users can comment.';
@@ -959,8 +1234,9 @@
       if(cmBusy || !cmAnimeId) return;
       cmBusy = true; cmEl.send.disabled = true; cmEl.hint.textContent = 'Posting\u2026';
       try{
-        await apiCall('/api/comments', { method:'POST', body:{ animeId:cmAnimeId, animeName:cmAnimeName, body:text } });
+        await apiCall('/api/comments', { method:'POST', body:{ animeId:cmAnimeId, animeName:cmAnimeName, body:text, spoiler:$('#cmSpoiler').checked } });
         cmEl.input.value = '';
+        $('#cmSpoiler').checked = false;
         cmEl.hint.textContent = '';
         await loadComments(cmAnimeId, cmAnimeName);
         toast('Comment posted');
@@ -1078,7 +1354,7 @@
             '<button class="cm-user" type="button" data-title="' + escapeHtml(String(c.animeId)) + '">' +
               escapeHtml(c.animeName || 'Open title') + '</button>' +
             '<span class="cm-ago">' + fmtAgo(c.createdAt) + '</span>' +
-          '</div><p class="cm-body">' + escapeHtml(c.body) + '</p></div>' +
+          '</div>' + commentBody(c) + '</div>' +
         '</div>').join('') : '<p class="cm-empty">No comments yet.</p>';
       $$('.cm-user[data-title]', up.comments).forEach(b => {
         b.onclick = () => openById(b.dataset.title, '');
@@ -1133,7 +1409,7 @@
      * 4) Privacy settings
      * ================================================================= */
 
-    let settings = { historyPublic:true, profilePublic:true };
+    let settings = null;
     const pv = { box:$('#pfPrivacy'), history:$('#pvHistory'), profile:$('#pvProfile'), note:$('#pvNote') };
 
     function renderPrivacy(){
@@ -1141,6 +1417,12 @@
       const signed = !!(token && user);
       pv.box.classList.toggle('hidden', !signed);
       if(!signed) return;
+      pv.history.disabled = pv.profile.disabled = !settings;
+      if(!settings){
+        pv.history.checked = pv.profile.checked = false;
+        pv.note.textContent = 'Privacy settings unavailable. Reconnect and sign in again before changing them.';
+        return;
+      }
       pv.history.checked = !!settings.historyPublic;
       pv.profile.checked = !!settings.profilePublic;
       pv.note.innerHTML = settings.profilePublic
@@ -1149,18 +1431,19 @@
     }
 
     async function savePrivacy(){
-      if(!(token && user)) return;
+      if(!(token && user && settings)) return;
+      const generation = sessionGeneration;
       const next = { historyPublic: !!pv.history.checked, profilePublic: !!pv.profile.checked };
       pv.history.disabled = pv.profile.disabled = true;
       try{
         const d = await apiCall('/api/settings', { method:'PUT', body: next });
+        if(generation !== sessionGeneration) return;
         settings = d.settings || next;
         toast('Privacy settings saved');
       }catch(err){
         toast(err.message || 'Could not save the privacy settings');
       }finally{
-        pv.history.disabled = pv.profile.disabled = false;
-        renderPrivacy();
+        if(generation === sessionGeneration) renderPrivacy();
       }
     }
     if(pv.history) pv.history.onchange = savePrivacy;
@@ -1223,9 +1506,9 @@
         accSay(acc.msg, 'All sessions were revoked', 'ok');
         // This token is dead too, so drop it locally instead of waiting for 401.
         setToken('');
-        settings = { historyPublic:true, profilePublic:true };
+        settings = null;
         renderAuthUI();
-        toast('Signed out everywhere - progress stays on this device');
+        toast('Signed out everywhere - account history stays separate');
       }catch(err){ accSay(acc.msg, err.message || 'Could not revoke the sessions', 'err'); }
       finally{ acc.logoutAll.disabled = false; }
     };
@@ -1259,11 +1542,14 @@
       try{
         await apiCall('/api/account', { method:'DELETE', body:{ password } });
         acc.delPwd.value = '';
+        localStorage.removeItem(storageKey(HISTORY_BASE));
+        localStorage.removeItem(storageKey(CHECKPOINT_BASE));
+        localStorage.removeItem(storageKey(DELETE_BASE));
         setToken('');
-        settings = { historyPublic:true, profilePublic:true };
+        settings = null;
         renderAuthUI();
         accSay(acc.delMsg, 'Account deleted', 'ok');
-        toast('Account deleted - local history stays on this device');
+        toast('Account deleted');
         showHome();
       }catch(err){ accSay(acc.delMsg, err.message || 'Could not delete the account', 'err'); }
       finally{ acc.delBtn.disabled = false; }
@@ -1433,11 +1719,98 @@
       if(aw) aw.textContent = fmtWatchTime(s.seconds);
     }
 
+    const LIST_BASE = 'aw:watchlist';
+    const LIST_STATUS = {planned:'Planned', watching:'Watching', completed:'Completed', on_hold:'On hold', dropped:'Dropped'};
+    let profileView = 'saved', listFlight = null;
+    function readWatchlist(){ return scope ? storedObject(storageKey(LIST_BASE)) : {}; }
+    function writeWatchlist(map){ if(scope) localStorage.setItem(storageKey(LIST_BASE), JSON.stringify(map)); }
+    function statusOptions(value, filter){
+      return '<option value="">' + (filter ? 'All statuses' : 'Not in My list') + '</option>' +
+        Object.entries(LIST_STATUS).map(([key,label]) => '<option value="' + key + '"' + (key === value ? ' selected' : '') + '>' + label + '</option>').join('');
+    }
+    function paintWatchStatus(){
+      const select = $('#watchStatus');
+      select.disabled = !scope || !current.title;
+      const item = current.title && readWatchlist()[String(current.title.id)];
+      select.innerHTML = statusOptions(item?.status, false);
+    }
+    function setWatchStatus(t, status){
+      if(!scope || !t || (!LIST_STATUS[status] && status !== 'removed')) return;
+      const map = readWatchlist(), id = String(t.id), old = map[id];
+      map[id] = {id, name:typeof t.name === 'string' ? t.name : titleName(t),
+        poster:typeof t.poster === 'string' ? t.poster : posterUrl(t), status,
+        ts:Math.max(Date.now(), (old?.ts || 0) + 1), dirty:true};
+      writeWatchlist(map); paintWatchStatus(); renderProfile(); syncWatchlist();
+    }
+    async function syncWatchlist(){
+      if(!token || !user || !scope){ $('#listSyncNote').textContent = 'Saved on this device'; return; }
+      if(listFlight) return listFlight;
+      const generation = sessionGeneration;
+      const run = async () => {
+        $('#listSyncNote').textContent = 'Syncing…';
+        try{
+          // A second edit during an in-flight request must remain dirty.
+          for(;;){
+            const pending = Object.values(readWatchlist()).find(it => it.dirty);
+            if(!pending) break;
+            await apiCall('/api/watchlist/' + encodeURIComponent(pending.id), {method:'PUT', body:pending});
+            if(generation !== sessionGeneration) return;
+            const map = readWatchlist();
+            if(map[pending.id]?.ts === pending.ts){ map[pending.id].dirty = false; writeWatchlist(map); }
+          }
+          const result = await apiCall('/api/watchlist');
+          if(generation !== sessionGeneration) return;
+          const map = readWatchlist();
+          for(const it of result.items || []){
+            if(!it || !it.id || (!LIST_STATUS[it.status] && it.status !== 'removed')) continue;
+            if(!map[it.id]?.dirty && (!map[it.id] || it.ts >= map[it.id].ts)) map[it.id] = it;
+          }
+          writeWatchlist(map); paintWatchStatus(); renderProfile();
+          $('#listSyncNote').textContent = 'Synced';
+        }catch(_){ if(generation === sessionGeneration) $('#listSyncNote').textContent = 'Saved locally · sync pending'; }
+      };
+      listFlight = run().finally(() => { if(generation === sessionGeneration) listFlight = null; });
+      return listFlight;
+    }
+    function renderSavedList(q){
+      const status = $('#pfStatusFilter').value;
+      const list = Object.values(readWatchlist()).filter(it => LIST_STATUS[it.status] && (!status || it.status === status) && (!q || it.name.toLowerCase().includes(q)));
+      list.sort(pf.sort.value === 'title' ? (a,b) => a.name.localeCompare(b.name) : (a,b) => b.ts-a.ts);
+      pf.empty.classList.toggle('hidden', list.length > 0);
+      pf.empty.querySelector('b').textContent = q || status ? 'No matches' : 'Your list is empty';
+      pf.empty.querySelector('p').textContent = 'Save a title from its card or detail page — no playback needed.';
+      pf.grid.innerHTML = list.map(it => '<article class="pf-card saved-card" data-id="' + escapeHtml(it.id) + '">' +
+        '<button class="pf-x" type="button" aria-label="Remove from My list">✕</button>' +
+        '<button class="saved-open" type="button">' + (safePoster(it.poster) ? '<img src="' + escapeHtml(safePoster(it.poster)) + '" alt="" width="80" height="114" loading="lazy" />' : '<span class="saved-no-poster" aria-hidden="true">No poster</span>') + '<h4>' + escapeHtml(it.name) + '</h4></button>' +
+        '<label>Status <select class="ui saved-status" aria-label="Status for ' + escapeHtml(it.name) + '">' + statusOptions(it.status, false) + '</select></label></article>').join('');
+      $$('.saved-card', pf.grid).forEach(card => {
+        const it = readWatchlist()[card.dataset.id];
+        card.querySelector('.saved-open').onclick = () => openById(it.id, '');
+        card.querySelector('.pf-x').onclick = () => setWatchStatus(it, 'removed');
+        card.querySelector('select').onchange = e => setWatchStatus(it, e.target.value || 'removed');
+      });
+    }
+    $('#pfStatusFilter').innerHTML = statusOptions('', true);
+    $('#pfStatusFilter').onchange = () => renderProfile();
+    $('#pfSavedTab').onclick = () => { profileView = 'saved'; renderProfile(); syncWatchlist(); };
+    $('#pfHistoryTab').onclick = () => { profileView = 'history'; renderProfile(); };
+    window.__awAddToList = t => {
+      if(!scope){ openAuth(); return; }
+      const existing = readWatchlist()[String(t.id)];
+      if(!LIST_STATUS[existing?.status]) setWatchStatus(t, 'planned');
+      toast('Saved in My list');
+    };
+    $('#watchStatus').onchange = e => setWatchStatus(current.title, e.target.value || 'removed');
+    window.addEventListener('online', () => syncWatchlist());
+    window.addEventListener('focus', () => syncWatchlist());
+    window.addEventListener('storage', e => { if(e.key === storageKey(LIST_BASE)){ paintWatchStatus(); renderProfile(); } });
+
     function renderProfile(){
       if(!pf.grid) return;
       refreshStats();
       renderPrivacy();
       renderAccount();
+      renderLocalImport();
 
       const signed = !!(token && user);
       const who    = signed ? (user.displayName || user.username || 'user') : 'Guest';
@@ -1447,7 +1820,17 @@
         ? '@' + (user.username || who)
         : 'Signed out - history is stored on this device only';
 
+      const savedView = profileView === 'saved';
+      $('#pfSavedTab').setAttribute('aria-pressed', String(savedView));
+      $('#pfHistoryTab').setAttribute('aria-pressed', String(!savedView));
+      $('#pfStatusFilter').classList.toggle('hidden', !savedView);
+      pf.clear.classList.toggle('hidden', savedView);
+      pf.sort.querySelector('[value="progress"]').disabled = savedView;
+      pf.sort.querySelector('[value="recent"]').textContent = savedView ? 'Recently updated' : 'Recently watched';
+      pf.filter.placeholder = savedView ? 'Filter My list…' : 'Filter your history…';
+      pf.filter.setAttribute('aria-label', savedView ? 'Filter My list' : 'Filter watch history');
       const q = (pf.filter.value || '').trim().toLowerCase();
+      if(savedView){ renderSavedList(q); return; }
       let list = historyList().filter(it => !q || String(it.name).toLowerCase().indexOf(q) !== -1);
       const sort = pf.sort.value;
       if(sort === 'title')    list.sort((a,b) => String(a.name).localeCompare(String(b.name)));
@@ -1457,6 +1840,7 @@
       if(!list.length){
         pf.grid.innerHTML = '';
         pf.empty.querySelector('b').textContent = q ? 'No matches' : 'Nothing here yet';
+        pf.empty.querySelector('p').textContent = 'Your watched titles will appear here after playback.';
         return;
       }
 
@@ -1503,15 +1887,24 @@
     pf.filter.addEventListener('input', debounce(renderProfile, 150));
     pf.sort.addEventListener('change', renderProfile);
     pf.clear.onclick = async () => {
-      if(!historyList().length) return;
+      if(!scope || clearingHistory || !historyList().length) return;
       if(!confirm('Clear the whole watch history?')) return;
-      localStorage.removeItem(HIST_KEY);
-      localStorage.removeItem(LAST_KEY);
-      renderResume(); renderProfile(); refreshStats();
-      if(token){
-        try{ await apiCall('/api/progress', { method:'DELETE' }); }catch(_){}
-      }
-      toast('Watch history cleared');
+      const generation = sessionGeneration;
+      clearUndoTimers(); writeUndoRecords({});
+      const ids = Object.values(readHistory()).map(item => String(item.id));
+      if(current.title) ids.push(String(current.title.id));
+      ids.forEach(id => { suppressedTitles.add(id); cancelQueuedProgress(id); });
+      writeDeletionJournal({clear:true, ids:[]});
+      clearingHistory = true; historyRevision++;
+      clearTimeout(pushTimer); pushTimer = 0; pendingWrites.clear(); pendingItem = null; failedQueue = [];
+      try{
+        await drainDeletions();
+        if(generation !== sessionGeneration) return;
+        renderResume(); renderProfile(); refreshStats();
+        toast('Watch history cleared');
+      }catch(_){
+        if(generation === sessionGeneration) toast('History removal pending. Reconnect to retry; progress will not be re-uploaded.');
+      }finally{ if(generation === sessionGeneration){ clearingHistory = false; renderLocalImport(); } }
     };
     pf.back.onclick = () => showHome();
 
@@ -1526,6 +1919,7 @@
     });
 
     function showProfile(){
+      ++catalogGeneration;
       hidePub();
       el.home.classList.add('hidden');
       el.detail.classList.add('hidden');
@@ -1537,7 +1931,7 @@
     }
     function goProfile(){
       pushRoute('/profile', { view:'profile' });
-      document.title = 'AniWired - My history';
+      document.title = 'AniWired - My list';
       showProfile();
     }
 
@@ -1562,6 +1956,7 @@
 
     const _openTitle = openTitle;
     openTitle = function(id, resume){
+      if(!deletingTitles.has(String(id)) && !clearingHistory && !deletionPending(id)) suppressedTitles.delete(String(id));
       const saved = readHistory()[String(id)];
       if(!resume && saved?.source === 'kodik') return resumeItem(saved);
       if(!resume && saved) resume = { idx:saved.idx, time:saved.time, quality:saved.quality };
@@ -1573,6 +1968,7 @@
       Promise.resolve(p).then(() => {
         if(current.title) document.title = titleName(current.title) + ' - AniWired';
         markSeenEpisodes();
+        paintWatchStatus();
         loadComments(String(id), current.title ? titleName(current.title) : '');
       }).catch(()=>{});
       return p;
@@ -1581,6 +1977,7 @@
     if(typeof openKodikTitle === 'function'){
       const _openKodik = openKodikTitle;
       openKodikTitle = function(t, resume){
+        if(!deletingTitles.has(String(t.id)) && !clearingHistory && !deletionPending(t.id)) suppressedTitles.delete(String(t.id));
         pf.section.classList.add('hidden');
         hidePub();
         if(t && t.id != null){
@@ -1593,6 +1990,7 @@
         Promise.resolve(p)
           .then(() => {
             if(current.title !== t) return;
+            paintWatchStatus();
             renderKodikEpisodes(t);
             loadComments(String((t && t.id) || ''), t ? titleName(t) : '');
           })
@@ -1613,6 +2011,15 @@
       updateNav('home');
       return _showHome(keepPlayer);
     };
+
+    // Returning to a live player changes navigation only: never reload the iframe.
+    el.miniReturn.addEventListener('click', e => {
+      if(e.target.closest('#mrClose') || !current.title) return;
+      pf.section.classList.add('hidden'); hidePub();
+      pushRoute(pathForTitle(current.title.id), {view:'title', id:String(current.title.id), kodik:current.mode === 'kodik'});
+      document.title = titleName(current.title) + ' - AniWired';
+      el.backBtn.focus({preventScroll:true});
+    });
 
     function readKodikCache(id){
       if(kodikCache[id]) return kodikCache[id];
@@ -1686,11 +2093,40 @@
     };
     let mode = 'login';
 
+    function resetSessionWork(){
+      sessionGeneration++;
+      listFlight = null;
+      clearUndoTimers();
+      clearTimeout(pushTimer); pushTimer = 0;
+      pendingWrites.clear(); pushedSigs.clear(); inFlight.clear(); progressRequests.clear();
+      pendingItem = null; failedQueue = []; deletionFlight = null;
+    }
+    function setIdentity(nextUser){
+      if(nextUser && (typeof nextUser.id !== 'string' || !nextUser.id)) throw new Error('Invalid account identity');
+      const nextScope = nextUser ? 'user:' + encodeURIComponent(nextUser.id) : (token ? null : 'guest');
+      if(scope !== nextScope){
+        resetSessionWork();
+        // Stop the old account's player before exposing a new storage scope.
+        scope = null;
+        el.mrClose.click(); current.title = null;
+        watch.key = ''; watch.acc = 0; lastPicked = null;
+        suppressedTitles.clear(); deletingTitles.clear(); clearingHistory = false;
+        scope = nextScope;
+        restoreUndo();
+        deletionJournal().ids.forEach(id => suppressedTitles.add(id));
+      }
+      user = nextUser;
+      restoreUndo();
+    }
     function setToken(t){
-      if(token !== (t || '')){ clearTimeout(pushTimer); pushTimer = 0; pendingWrites.clear(); pushedSigs.clear(); pendingItem = null; }
-      token = t || '';
+      t = t || '';
+      if(token !== t) resetSessionWork();
+      token = t;
       if(token) localStorage.setItem(TOKEN_KEY, token);
-      else { localStorage.removeItem(TOKEN_KEY); user = null; }
+      else {
+        localStorage.removeItem(TOKEN_KEY);
+        setIdentity(null); settings = null;
+      }
     }
     function setMsg(text, ok){
       ael.msg.textContent = text || '';
@@ -1699,6 +2135,8 @@
     function setMode(next){
       mode = next;
       ael.tabLogin.classList.toggle('active', mode === 'login');
+      ael.tabLogin.setAttribute('aria-pressed', String(mode === 'login'));
+      ael.tabRegister.setAttribute('aria-pressed', String(mode === 'register'));
       ael.tabRegister.classList.toggle('active', mode === 'register');
       ael.title.textContent  = mode === 'login' ? 'Sign in' : 'Create account';
       ael.submit.textContent = mode === 'login' ? 'Sign in' : 'Create account';
@@ -1731,8 +2169,32 @@
       renderResume();
       renderProfile();
     }
-    function openAuth(){ ael.back.classList.add('show'); if(!user) setTimeout(() => ael.name.focus(), 60); }
-    function closeAuth(){ ael.back.classList.remove('show'); setMsg(''); }
+    let authFocus = null, authBackground = [], authOverflow = '';
+    const authControls = () => [...ael.back.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]')]
+      .filter(n => !n.disabled && n.getClientRects().length && !n.closest('[inert]'));
+    function openAuth(){
+      if(ael.back.classList.contains('show')) return;
+      authFocus = document.activeElement; authOverflow = document.body.style.overflow;
+      authBackground = [...document.querySelectorAll('body > header, body > main, #miniReturn')].map(n => ({n, inert:n.inert}));
+      authBackground.forEach(({n}) => { n.inert = true; });
+      document.body.style.overflow = 'hidden'; ael.back.classList.add('show');
+      (user ? ael.close : ael.name).focus();
+    }
+    function closeAuth(){
+      if(!ael.back.classList.contains('show')) return;
+      ael.back.classList.remove('show'); setMsg('');
+      authBackground.forEach(({n,inert}) => { n.inert = inert; }); authBackground = [];
+      document.body.style.overflow = authOverflow;
+      const focus = authFocus && authFocus.isConnected && authFocus.getClientRects().length ? authFocus : ael.nav;
+      focus.focus(); authFocus = null;
+    }
+    ael.back.addEventListener('keydown', e => {
+      if(e.key !== 'Tab') return;
+      const controls = authControls(), first = controls[0], last = controls[controls.length-1];
+      if(!first){ e.preventDefault(); $('#authModal').focus(); return; }
+      if(e.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement))){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && (document.activeElement === last || !controls.includes(document.activeElement))){ e.preventDefault(); first.focus(); }
+    });
 
     ael.nav.onclick = openAuth;
     ael.nav.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); openAuth(); } });
@@ -1742,7 +2204,10 @@
     ael.tabLogin.onclick    = () => setMode('login');
     ael.tabRegister.onclick = () => setMode('register');
     ael.profileBtn.onclick  = () => { closeAuth(); goProfile(); };
-    if(ael.navProfile) ael.navProfile.onclick = () => goProfile();
+    if(ael.navProfile){
+      ael.navProfile.onclick = () => goProfile();
+      ael.navProfile.addEventListener('keydown', e => { if(e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); goProfile(); } });
+    }
 
     ael.form.addEventListener('submit', async e => {
       e.preventDefault();
@@ -1759,11 +2224,18 @@
       ael.submit.disabled = true; setMsg('Please wait\u2026');
       try{
         const data = await apiCall('/api/auth/' + mode, { method:'POST', auth:false, body:{ username, password } });
-        setToken(data.token); user = data.user;
-        settings = data.settings || { historyPublic:true, profilePublic:true };
+        // Old API versions did not return settings. Fetch real values rather
+        // than inventing public defaults; keep controls disabled on failure.
+        let me = data;
+        setToken(data.token);
+        if(!data.settings) me = await apiCall('/api/auth/me');
+        setIdentity(me.user || data.user);
+        settings = me.settings || null;
         setMsg(mode === 'login' ? 'Signed in' : 'Account created', true);
         renderAuthUI();
+        const generation = sessionGeneration;
         await syncProgress();
+        if(generation !== sessionGeneration) return;
         toast('Signed in as ' + (user.displayName || user.username));
         setTimeout(closeAuth, 450);
         ael.password.value = '';
@@ -1773,10 +2245,10 @@
 
     ael.logout.onclick = () => {
       setToken('');
-      settings = { historyPublic:true, profilePublic:true };
+      settings = null;
       renderAuthUI();
       closeAuth();
-      toast('Signed out - progress stays on this device');
+      toast('Signed out - account history stays separate from guest history');
     };
 
     /* session restore */
@@ -1788,15 +2260,17 @@
           // current one is close to expiry, so an active user is never
           // signed out on a fixed schedule.
           if(me.token) setToken(me.token);
-          user = me.user;
-          if(me.settings) settings = me.settings;
+          setIdentity(me.user);
+          settings = me.settings || null;
           renderAuthUI();
           await syncProgress(true);
         }catch(_){ renderAuthUI(); /* A temporary network outage must not sign the user out. */ }
       } else {
+        try{ await drainDeletions(); }catch(_){}
         renderAuthUI();
       }
     }
+    restoreUndo();
     bootSession().finally(() => {
       // Resolve account history before restoring a deep link on a new device.
       if(location.pathname === initialPath && !current.title && /^\/(title|profile|genre|u|top|random)\b/.test(initialPath)) applyRoute();
@@ -1826,6 +2300,8 @@
       const out = _renderAuthUI.apply(this, arguments);
       updateCommentForm();
       renderPrivacy();
+      renderLocalImport();
+      paintWatchStatus(); syncWatchlist();
       socialLoaded = false;
       loadSocial();
       if(cmAnimeId) loadComments(cmAnimeId, cmAnimeName);
@@ -1839,7 +2315,8 @@
       get user(){ return user; },
       get settings(){ return settings; },
       get social(){ return social; },
-      syncProgress, apiCall, readHistory, historyList, goProfile,
+      syncProgress, apiCall, readHistory, historyList, goProfile, syncWatchlist, readWatchlist,
+      get historyKey(){ return storageKey(HISTORY_BASE); },
       goUser, goGenre, showGenre, loadSocial, goTop, goRandom,
       hdSetup(){ if(typeof window.__awHdSetup === 'function') window.__awHdSetup(); }
     };

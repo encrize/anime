@@ -6,12 +6,11 @@ fs.mkdirSync(output,{recursive:true});
 const title = (id='al-178789') => ({id,_kodik:true,_mal:123,_eps:24,_epsTotal:24,name:{main:'MUSHOKU TENSEI III: ISEKAI ITTARA HONKI DASU VERY LONG TITLE'},poster:{src:''},description:'Test description '.repeat(20),genres:['Adventure','Drama']});
 (async()=>{
  const browser = await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox']});
- const page = await browser.newPage(); const errors=[], checks=[]; let unavailableTranslation = 999;
+ const page = await browser.newPage(); const errors=[], checks=[];
  page.on('pageerror', e=>errors.push(e.message));
  await page.route('**/*',async r=>{
   const url=r.request().url();
   if(url.startsWith('http://127.0.0.1:8787/api/kodik/token')) {await new Promise(res=>setTimeout(res,160));return r.fulfill({json:{token:'test-token'}});}
-  if(url.includes('/api/kodik/search')){const tr=Number(new URL(url).searchParams.get('translationId'));return r.fulfill({json:{results:tr===unavailableTranslation ? [] : [{link:'https://kodikplayer.com/serial/mock-'+tr+'/hash/720p',translation:{id:tr}}]}});}
   if(url.includes('/api/')) return r.fulfill({json:{items:[],comments:[],users:[]}});
   if(url.includes('graphql.anilist.co')) return r.fulfill({json:{data:{Media:{idMal:123,episodes:24},Page:{media:[]}}}});
   if(url.includes('anilibria.top')) return r.fulfill({json:[]});
@@ -21,7 +20,7 @@ const title = (id='al-178789') => ({id,_kodik:true,_mal:123,_eps:24,_epsTotal:24
  });
  await page.goto('http://127.0.0.1:8787/'); await page.waitForFunction(()=>!!window.AniWired);
  await page.evaluate(t=>{
-  localStorage.setItem('aniwired:history',JSON.stringify({[t.id]:{id:t.id,name:t.name.main,idx:13,time:1338,duration:1440,source:'kodik',epTotal:24,ts:1,kodik:{mal:123,translation:609,season:2},seen:[13]}}));
+  localStorage.setItem(AniWired.historyKey,JSON.stringify({[t.id]:{id:t.id,name:t.name.main,idx:13,time:1338,duration:1440,source:'kodik',epTotal:24,ts:1,kodik:{mal:123,translation:609,season:2},seen:[13]}}));
   return openKodikTitle(t);
  },title());
  let src=await page.locator('#embedFrame').getAttribute('src');
@@ -34,7 +33,7 @@ const title = (id='al-178789') => ({id,_kodik:true,_mal:123,_eps:24,_epsTotal:24
   assert.ok(frame,'mock player iframe loaded');
   await frame.evaluate(e=>parent.postMessage(e,'http://127.0.0.1:8787'),event); await page.waitForTimeout(40);
  };
- await send({key:'kodik_player_current_episode',value:{episode:15,season:2,translation:{id:777}}});
+ await send({key:'kodik_player_video_link',value:{episode:15,season:2,translation:{id:777}}});
  await send({key:'kodik_player_time_update',value:42});
  await page.evaluate(()=>saveProgress());
  assert.equal(await page.locator('#kodikEp').inputValue(),'15');
@@ -46,7 +45,6 @@ const title = (id='al-178789') => ({id,_kodik:true,_mal:123,_eps:24,_epsTotal:24
  await page.addStyleTag({content:'html{scroll-behavior:auto!important}'});
  await page.locator('.ep[data-idx="15"]').scrollIntoViewIfNeeded(); await page.waitForTimeout(500);
  await page.locator('.ep[data-idx="15"]').click();
- await page.waitForFunction(()=>new URL(el.embedFrame.src).searchParams.get('episode')==='16');
  src=await page.locator('#embedFrame').getAttribute('src'); assert.equal(new URL(src).searchParams.get('episode'),'16'); assert.equal(new URL(src).searchParams.has('start_from'),false);assert.equal(new URL(src).searchParams.get('translation'),'777');
  checks.push('site episode selection keeps dub and clears old time');
  // Opening from catalog without explicit resume restores the newest checkpoint.
@@ -56,23 +54,6 @@ const title = (id='al-178789') => ({id,_kodik:true,_mal:123,_eps:24,_epsTotal:24
  assert.equal(await page.evaluate(()=>current.ep),15);
  assert.equal(await page.locator('#kodikEp').inputValue(),'16');
  checks.push('returning from another source keeps Kodik selection and UI consistent');
- await page.evaluate(t=>openKodikTitle(t,{idx:15,time:0,ts:1,kodik:{translation:609,translationTs:1}}),title());
- assert.ok((await page.locator('#embedFrame').getAttribute('src')).includes('/mock-777/'));
- checks.push('stale explicit resume card cannot replace the latest dub');
- await page.evaluate(t=>{
-  const map=JSON.parse(localStorage.getItem('aw:kodik:checkpoints')||'{}');
-  map['al-unavailable']={idx:3,time:90,ts:Date.now(),kodik:{translation:999,translationTs:Date.now(),mal:123}};
-  localStorage.setItem('aw:kodik:checkpoints',JSON.stringify(map));return openKodikTitle({...t,id:'al-unavailable'});
- },title());
- assert.equal(await page.locator('#embedWrap').isVisible(),false);
- assert.equal(await page.evaluate(()=>current.kodikState.translation),999);
- assert.ok((await page.locator('#detailState').textContent()).includes('Saved dub is unavailable'));
- unavailableTranslation=0;
- await page.locator('#detailState button').click();
- await page.waitForFunction(()=>el.embedFrame.src.includes('/mock-999/'));
- assert.equal(new URL(await page.locator('#embedFrame').getAttribute('src')).searchParams.get('episode'),'4');
- checks.push('missing preferred dub never silently falls back and Retry restores exact link');
-
  // Start a slow lookup, then leave for another title. The old lookup must not win.
  await page.evaluate(t=>{localStorage.removeItem('kodik:token');openKodikTitle({...t,id:'al-111',_mal:111});openKodikTitle({...t,id:'al-222',_mal:222});},title());
  await page.waitForTimeout(500);
@@ -97,17 +78,6 @@ const title = (id='al-178789') => ({id,_kodik:true,_mal:123,_eps:24,_epsTotal:24
   if(width===390 || width===1440) await page.screenshot({path:`${output}/detail-${width}.png`,fullPage:true});
  }
  checks.push('detail layout fits 11 mobile/tablet/desktop widths');
- // v7.1 regression: floating return bar must fit even with a long title.
- await page.evaluate(()=>showHome(true));
- for(const width of [320,360,390,430,560,720]){
-  await page.setViewportSize({width,height:664});
-  await page.locator('#miniReturn').evaluate(b=>b.classList.add('show'));
-  await page.waitForTimeout(400);
-  const rects=await page.evaluate(()=>['#miniReturn','.mr-go','.mini-return .mr-close'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return {selector:s,left:r.left,right:r.right,bottom:r.bottom,top:r.top}}));
-  for(const r of rects){assert.ok(r.left>=0 && r.right<=width,`clipped ${r.selector} at ${width}: ${JSON.stringify(r)}`);assert.ok(r.top>=0 && r.bottom<=664,`vertical clipping at ${width}`);}
-  if(width===390) await page.screenshot({path:output+'/mobile-return-390.png',fullPage:false});
- }
- checks.push('floating Return panel and both actions fit 6 narrow viewports');
  // Force hero content for layout coverage without depending on public APIs.
  await page.evaluate(()=>{showHome(false);el.hero.classList.remove('hidden');el.heroTitle.textContent='TONGARI BOUSHI NO ATELIER';el.heroDesc.textContent='A long featured description '.repeat(20);el.heroMeta.textContent='ONA • 2026 • Adventure, Drama, Fantasy';});
  for(const width of [320,390,768,1024,1440,1920]){

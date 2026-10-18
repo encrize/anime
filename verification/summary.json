@@ -1,0 +1,15 @@
+{
+  "syntax": "pass",
+  "node_tests": {
+    "passed": 31,
+    "failed": 0
+  },
+  "browser_suite": "pass",
+  "new_feature_scenarios": 8,
+  "browser_page_errors": 0,
+  "external_apis": "mocked",
+  "worker_database_tests": "Worker handler + in-memory SQLite",
+  "production_deploy": false,
+  "production_database_modified": false,
+  "required_upgrade_for_existing_v7": "Back up D1; apply migrate-v8.sql once before deploy"
+}

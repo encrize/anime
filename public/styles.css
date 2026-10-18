@@ -804,7 +804,7 @@
   label.section-title::before,.ep-head .section-title::before{display:none}
   label.section-title{gap:0}
 
-  #profile .pf-grid,#results.grid{content-visibility:auto;contain-intrinsic-size:auto 640px}
+  #profile .pf-grid{content-visibility:auto;contain-intrinsic-size:auto 640px}
   .card,.cw-item,.pf-card{contain:layout paint}
   .card .thumb,.cw-item img,.pf-card img{background-color:var(--panel-2)}
 
@@ -1136,28 +1136,56 @@ select.ui{min-width:0;max-width:100%;width:fit-content}
   .time{font-size:11px}.pl-select{max-width:80px;padding:5px}
   #ambientBtn,#subBtn{display:none}
   .cw-item{flex-basis:min(82vw,300px)}
-  .mini-return{max-width:calc(100vw - 24px);left:12px;right:12px;bottom:max(12px,env(safe-area-inset-bottom))}
+  /* Both horizontal edges are anchored on mobile. Do not retain the desktop
+     translateX(-50%), which moved half the panel outside the left viewport. */
+  .mini-return{left:12px;right:12px;left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));
+    width:auto;max-width:none;box-sizing:border-box;bottom:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+    transform:translateY(140%);gap:8px;padding:10px}
+  .mini-return.show{transform:translateY(0)}
+  .mini-return .mr-info{flex:1;min-width:0}
+  .mini-return .mr-info h5{max-width:100%}
+  .mini-return img{flex:0 0 36px}
+  .mini-return .mr-go{flex:0 0 auto;min-height:44px;display:inline-flex;align-items:center}
+  .mini-return .mr-close{flex:0 0 44px;width:44px;height:44px;margin:0}
 }
 @media(max-width:380px){
   .pl-btns{gap:2px}.pl-btns .spacer{display:none}#rewBtn,#fwdBtn{display:none}
   .hero-actions .btn{padding:10px 14px}
 }
 
-/* v7.1: left/right anchoring must not retain the desktop -50% translation. */
-@media(max-width:720px){
-  .mini-return{
-    left:max(12px,env(safe-area-inset-left));
-    right:max(12px,env(safe-area-inset-right));
-    width:auto;max-width:none;min-width:0;
-    bottom:max(16px,env(safe-area-inset-bottom));
-    transform:translateY(calc(100% + 80px));
-    gap:8px;padding:10px;box-sizing:border-box;
-  }
-  .mini-return.show{transform:translateY(0)}
-  .mini-return img{flex:0 0 36px}
-  .mini-return .mr-info{flex:1 1 0;min-width:0;overflow:hidden}
-  .mini-return .mr-info h5{max-width:none}
-  .mini-return .mr-info p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .mini-return .mr-go{flex:none;margin:0;padding:10px 8px;font-size:12px}
-  .mini-return .mr-close{flex:0 0 40px;width:40px;height:44px;display:grid;place-items:center;padding:0}
-}
+/* Phase 2: keep the original retro palette and borders; add native focus. */
+a.card{color:inherit;text-decoration:none}
+.mini-return .mr-go{font-family:inherit;cursor:pointer;white-space:nowrap}
+:where(button,a,input,select,textarea,[role="button"]):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.search input::placeholder,.pf-search input::placeholder{color:var(--muted)}
+
+.mini-return .mr-close svg,.auth-x svg{display:block;margin:auto}
+
+/* Planning list, remote catalog filters and reversible history removal. */
+.catalog-filters{margin:18px 0;border:1px solid var(--border,#34313e);border-radius:12px;padding:12px 16px}
+.catalog-filters summary{cursor:pointer;font-weight:600;min-height:28px}
+.catalog-fields{display:flex;gap:14px;flex-wrap:wrap;align-items:end;padding-top:12px}
+.catalog-fields label,.list-picker,.saved-card>label{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.catalog-fields input{width:110px}.catalog-fields select{max-width:100%}
+#cfMore{display:block;margin:20px auto}.list-picker{margin:14px 0;max-width:260px}
+.list-tabs{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:22px 0 12px}
+.list-tabs [aria-pressed="true"]{border-color:#b695ff;background:#b695ff22}
+#listSyncNote{font-size:12px;color:#aaa}.saved-open{display:block;width:100%;background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer}
+.saved-open img{display:block;width:100%;aspect-ratio:220/310;object-fit:cover;background:#24212c}.saved-open h4{padding:12px;margin:0}
+.saved-card>label{padding:0 12px 14px}.saved-card .ui{width:100%;min-width:0}
+.cm-actions{flex-wrap:wrap}.spoiler-check{display:flex;align-items:center;gap:6px;font-size:13px}
+.cm-spoiler{padding:10px 12px;background:#b695ff0d;border:1px dashed #8e7da9;border-radius:8px;margin-top:8px}
+.cm-spoiler summary{cursor:pointer;color:#c7b2ef}.cm-spoiler .cm-body{margin-top:10px}
+.history-undo{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:10000;display:flex;align-items:center;gap:20px;max-width:calc(100vw - 28px);padding:14px 18px;background:#292331;color:#fff;border:1px solid #9b80c1;border-radius:12px;box-shadow:0 6px 28px #0008}
+.history-undo button{border:0;background:transparent;color:#d1b0ff;font:inherit;font-weight:700;cursor:pointer;padding:8px}
+@media(max-width:600px){.catalog-fields{display:grid;grid-template-columns:1fr 1fr}.catalog-fields label{min-width:0}.catalog-fields .ui{width:100%;min-width:0}.catalog-fields button{grid-column:1/-1}.history-undo{bottom:16px;width:max-content;gap:10px}}
+
+.card-link{display:block;color:inherit;text-decoration:none}.card-save{position:absolute;top:8px;right:8px;z-index:1;padding:8px 10px;border:1px solid #bda3df;border-radius:7px;background:#201a2eee;color:#fff;cursor:pointer;font:inherit;font-size:12px;min-height:36px}
+
+/* Scoped overrides: saved cards must not inherit the history card's horizontal layout. */
+.pf-card.saved-card{display:block;cursor:default}.saved-card .saved-open{display:flex;align-items:center;gap:12px;padding:12px;text-align:left}
+.saved-card .saved-open img,.saved-no-poster{width:80px;height:114px;flex:0 0 80px;aspect-ratio:auto;object-fit:cover;border:1px solid var(--border)}
+.saved-no-poster{display:grid;place-items:center;background:var(--panel-2);font-size:10px;color:var(--muted)}
+.saved-card .saved-open h4{padding:0 22px 0 0;margin:0;overflow-wrap:anywhere;min-width:0}.saved-card>label{width:100%;box-sizing:border-box}
+.saved-card .pf-x{opacity:1;z-index:1}.catalog-fields input{min-height:40px;box-sizing:border-box;padding:8px 10px;color:var(--text);background:var(--panel-2);font:inherit}
+#pfGrid{margin-bottom:24px}

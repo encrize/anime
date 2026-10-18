@@ -103,14 +103,22 @@ async function signJWT(payload, secret, ttlSeconds = TOKEN_TTL_SECONDS) {
 }
 
 async function verifyJWT(token, secret) {
-  if (!token || token.split('.').length !== 3) return null;
-  const [h, p, s] = token.split('.');
-  const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), bytesFromB64url(s), TE.encode(h + '.' + p));
-  if (!ok) return null;
-  let payload;
-  try { payload = JSON.parse(stringFromB64url(p)); } catch { return null; }
-  if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
-  return payload;
+  try {
+    if (!token || token.split('.').length !== 3) return null;
+    const [h, p, signature] = token.split('.');
+    const header = JSON.parse(stringFromB64url(h));
+    if (!header || header.alg !== 'HS256' || header.typ !== 'JWT') return null;
+    const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), bytesFromB64url(signature), TE.encode(h + '.' + p));
+    if (!ok) return null;
+    const payload = JSON.parse(stringFromB64url(p));
+    if (!payload || typeof payload.sub !== 'string' || !payload.sub ||
+        !Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000) ||
+        !Number.isInteger(payload.epoch ?? 0) || (payload.epoch ?? 0) < 0) return null;
+    return payload;
+  } catch (_) {
+    // Malformed base64/JSON/signatures are credentials failures, not HTTP 500.
+    return null;
+  }
 }
 
 const PBKDF2_ITER = 100000;
@@ -192,8 +200,7 @@ function normalizeKodik(raw) {
       u.searchParams.delete('token'); link = u.href.slice(0, 2000);
     }
   } catch(_) {}
-  return { mal:pos(raw.mal), season:pos(raw.season), translation:pos(raw.translation),
-    translationTs:Number.isSafeInteger(Number(raw.translationTs)) && Number(raw.translationTs) > 0 ? Number(raw.translationTs) : 0, link };
+  return { mal:pos(raw.mal), season:pos(raw.season), translation:pos(raw.translation), link };
 }
 
 function parseKodik(text) {
@@ -252,14 +259,8 @@ const rowToItem = (r) => ({
 
 async function loadUserRow(env, column, value) {
   const cols = 'id, username, display_name, created_at, history_public, profile_public';
-  try {
-    return await env.DB.prepare(`SELECT ${cols} FROM users WHERE ${column} = ?1`).bind(value).first();
-  } catch (_) {
-    const row = await env.DB.prepare(
-      `SELECT id, username, display_name, created_at FROM users WHERE ${column} = ?1`).bind(value).first();
-    if (row) { row.history_public = 1; row.profile_public = 1; }
-    return row;
-  }
+  // Missing privacy columns must never silently turn a private profile public.
+  return env.DB.prepare(`SELECT ${cols} FROM users WHERE ${column} = ?1`).bind(value).first();
 }
 
 const publicUser = (row) => ({
@@ -270,8 +271,8 @@ const publicUser = (row) => ({
 });
 
 const settingsOf = (row) => ({
-  historyPublic: row.history_public == null ? true : !!row.history_public,
-  profilePublic: row.profile_public == null ? true : !!row.profile_public,
+  historyPublic: row.history_public === 1,
+  profilePublic: row.profile_public === 1,
 });
 
 function statsOf(items) {
@@ -373,11 +374,31 @@ async function listFollows(env, userId, kind, limit = 200) {
 }
 
 
+const WATCHLIST_STATUSES = new Set(['planned', 'watching', 'completed', 'on_hold', 'dropped', 'removed']);
+function normalizeWatchlist(raw) {
+  const id = String(raw.id || '').trim();
+  if (!/^(?:al-)?[0-9]{1,16}$/.test(id) || !WATCHLIST_STATUSES.has(raw.status)) return null;
+  let poster = '';
+  try { const u = new URL(raw.poster); if (u.protocol === 'https:') poster = u.href.slice(0, 2000); } catch (_) {}
+  return { id, name: String(raw.name || '').slice(0, 300), poster, status: raw.status,
+    ts: Math.max(1, Math.min(Date.now(), Math.floor(Number(raw.ts) || Date.now()))) };
+}
+const watchlistRow = r => ({ id:r.anime_id, name:r.name, poster:r.poster, status:r.status, ts:r.updated_at });
+async function upsertWatchlist(env, userId, item) {
+  // Keep removal tombstones: an offline device must not resurrect removed titles.
+  await env.DB.prepare(`INSERT INTO watchlist (user_id,anime_id,name,poster,status,updated_at)
+    VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(user_id,anime_id) DO UPDATE SET
+    name=excluded.name, poster=excluded.poster, status=excluded.status, updated_at=excluded.updated_at
+    WHERE excluded.updated_at >= watchlist.updated_at`)
+    .bind(userId,item.id,item.name,item.poster,item.status,item.ts).run();
+}
+
 const commentRow = (r, viewerId) => ({
   id: r.id,
   animeId: r.anime_id,
   animeName: r.anime_name || '',
   body: r.body,
+  spoiler: r.spoiler === 1,
   createdAt: r.created_at,
   mine: !!viewerId && viewerId === r.user_id,
   user: {
@@ -413,8 +434,11 @@ async function requireUser(request, env) {
 
   try {
     const row = await env.DB.prepare('SELECT token_epoch FROM users WHERE id = ?1').bind(payload.sub).first();
-    if (row && (row.token_epoch || 0) > (payload.epoch || 0)) return null;
+    if (!row || !Number.isInteger(row.token_epoch) || row.token_epoch !== (payload.epoch ?? 0)) return null;
   } catch (_) {
+    const error = new Error('Authentication state is unavailable');
+    error.code = 'auth.state_unavailable';
+    throw error;
   }
 
   return {
@@ -454,13 +478,7 @@ async function upsertProgress(env, userId, item) {
        ep_label     = excluded.ep_label,
        ep_total     = excluded.ep_total,
        source       = excluded.source,
-       kodik_json   = CASE
-         WHEN COALESCE(json_extract(progress.kodik_json, '$.translationTs'), 0)
-            > COALESCE(json_extract(excluded.kodik_json, '$.translationTs'), 0)
-         THEN json_set(COALESCE(excluded.kodik_json, progress.kodik_json),
-           '$.translation', json_extract(progress.kodik_json, '$.translation'),
-           '$.translationTs', json_extract(progress.kodik_json, '$.translationTs'))
-         ELSE COALESCE(excluded.kodik_json, progress.kodik_json) END,
+       kodik_json   = COALESCE(excluded.kodik_json, progress.kodik_json),
        -- Union of both sets, so a device that was offline never drops episodes
        -- another device already recorded.
        seen_json    = (SELECT json_group_array(value) FROM (
@@ -476,15 +494,6 @@ async function upsertProgress(env, userId, item) {
     .bind(userId, item.id, item.name, item.poster, item.idx, item.quality, item.time, item.duration,
           item.epLabel, item.epTotal, item.source, JSON.stringify(item.seen), item.ts, item.kodik ? JSON.stringify(item.kodik) : null)
     .run();
-}
-
-async function tokenEpochOf(env, userId) {
-  try {
-    const row = await env.DB.prepare('SELECT token_epoch FROM users WHERE id = ?1').bind(userId).first();
-    return (row && row.token_epoch) || 0;
-  } catch (_) {
-    return 0;
-  }
 }
 
 const KODIK_API_HOSTS_DEFAULT = ['kodik-api.com', 'kodikapi.com'];
@@ -645,7 +654,12 @@ async function handleApi(request, env, url, ctx) {
 
   let body = {};
   if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
-    try { body = await request.json(); } catch { body = {}; }
+    if (request.body) {
+      try { body = await request.json(); } catch { return fail('Invalid JSON body', 400, 'request.invalid_json'); }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        return fail('JSON body must be an object', 400, 'request.invalid_body');
+      }
+    }
   }
 
   if (path === '/api/auth/register' && method === 'POST') {
@@ -667,7 +681,8 @@ async function handleApi(request, env, url, ctx) {
       .bind(id, username, raw, await hashPassword(password), Date.now()).run();
 
     const token = await signJWT({ sub: id, username, epoch: 0 }, requireSecret(env), TOKEN_TTL_SECONDS);
-    return json({ token, user: { id, username, displayName: raw } }, 201);
+    const row = await loadUserRow(env, 'id', id);
+    return json({ token, user: { id, username, displayName: raw }, settings: settingsOf(row) }, 201);
   }
 
   if (path === '/api/auth/login' && method === 'POST') {
@@ -679,7 +694,7 @@ async function handleApi(request, env, url, ctx) {
     if (!username || !password) return fail('Username and password are required', 422, 'auth.missing_credentials');
 
     const row = await env.DB.prepare(
-      'SELECT id, username, display_name, password_hash FROM users WHERE username = ?1').bind(username).first();
+      'SELECT id, username, display_name, password_hash, token_epoch, history_public, profile_public FROM users WHERE username = ?1').bind(username).first();
     if (!row || !(await checkPassword(password, row.password_hash))) {
       return fail('Wrong username or password', 401, 'auth.bad_credentials');
     }
@@ -691,9 +706,9 @@ async function handleApi(request, env, url, ctx) {
     }
 
     const token = await signJWT(
-      { sub: row.id, username: row.username, epoch: await tokenEpochOf(env, row.id) },
+      { sub: row.id, username: row.username, epoch: row.token_epoch },
       requireSecret(env), TOKEN_TTL_SECONDS);
-    return json({ token, user: { id: row.id, username: row.username, displayName: row.display_name || row.username } });
+    return json({ token, user: { id: row.id, username: row.username, displayName: row.display_name || row.username }, settings: settingsOf(row) });
   }
 
   const user = await requireUser(request, env);
@@ -727,14 +742,11 @@ async function handleApi(request, env, url, ctx) {
     }
 
     const hash = await hashPassword(newPassword);
-    let epoch = 0;
-    try {
-      epoch = (await tokenEpochOf(env, user.id)) + 1;
-      await env.DB.prepare('UPDATE users SET password_hash = ?2, token_epoch = ?3 WHERE id = ?1')
-        .bind(user.id, hash, epoch).run();
-    } catch (_) {
-      await env.DB.prepare('UPDATE users SET password_hash = ?2 WHERE id = ?1').bind(user.id, hash).run();
-    }
+    const changed = await env.DB.prepare(
+      'UPDATE users SET password_hash = ?2, token_epoch = token_epoch + 1 WHERE id = ?1 RETURNING token_epoch')
+      .bind(user.id, hash).first();
+    if (!changed) return fail('Unauthorized', 401, 'auth.unauthorized');
+    const epoch = changed.token_epoch;
 
     const token = await signJWT({ sub: user.id, username: user.username, epoch }, requireSecret(env), TOKEN_TTL_SECONDS);
     return json({ ok: true, token });
@@ -742,12 +754,10 @@ async function handleApi(request, env, url, ctx) {
 
   if (path === '/api/auth/logout-all' && method === 'POST') {
     if (!user) return fail('Unauthorized', 401, 'auth.unauthorized');
-    try {
-      await env.DB.prepare('UPDATE users SET token_epoch = ?2 WHERE id = ?1')
-        .bind(user.id, (await tokenEpochOf(env, user.id)) + 1).run();
-    } catch (_) {
-      return fail('Run: wrangler d1 execute aniwired --remote --file=./migrate-v6.sql', 500, 'db.migration_required');
-    }
+    const changed = await env.DB.prepare(
+      'UPDATE users SET token_epoch = token_epoch + 1 WHERE id = ?1 RETURNING token_epoch')
+      .bind(user.id).first();
+    if (!changed) return fail('Unauthorized', 401, 'auth.unauthorized');
     return json({ ok: true });
   }
 
@@ -771,7 +781,7 @@ async function handleApi(request, env, url, ctx) {
     let comments = [];
     try {
       const r = await env.DB.prepare(
-        'SELECT id, anime_id, anime_name, body, created_at FROM comments WHERE user_id = ?1 ORDER BY created_at DESC')
+        'SELECT id, anime_id, anime_name, body, spoiler, created_at FROM comments WHERE user_id = ?1 ORDER BY created_at DESC')
         .bind(user.id).all();
       comments = r.results || [];
     } catch (_) { comments = []; }
@@ -782,6 +792,7 @@ async function handleApi(request, env, url, ctx) {
       settings: settingsOf(me),
       progress: (progress.results || []).map(rowToItem),
       comments,
+      watchlist: (await env.DB.prepare('SELECT * FROM watchlist WHERE user_id = ?1').bind(user.id).all()).results || [],
       follows: {
         friends: await listFollows(env, user.id, 'friends', 1000),
         following: await listFollows(env, user.id, 'following', 1000),
@@ -834,11 +845,6 @@ async function handleApi(request, env, url, ctx) {
     if (!tokens.length) return fail('Kodik token is unavailable', 502, 'kodik.no_token');
 
     const params = new URLSearchParams({ limit: '50' });
-    const translationId = String(url.searchParams.get('translationId') || '');
-    if(translationId){
-      if(!/^[1-9][0-9]{0,7}$/.test(translationId)) return fail('Invalid translationId', 400, 'kodik.bad_request');
-      params.set('translation_id', translationId);
-    }
     if (shikimoriId) params.set('shikimori_id', shikimoriId);
     else params.set('title', title);
 
@@ -865,6 +871,9 @@ async function handleApi(request, env, url, ctx) {
     }
 
     if (method === 'PUT') {
+      if (typeof body.historyPublic !== 'boolean' || typeof body.profilePublic !== 'boolean') {
+        return fail('Privacy settings must be booleans', 422, 'settings.invalid');
+      }
       const historyPublic = body.historyPublic ? 1 : 0;
       const profilePublic = body.profilePublic ? 1 : 0;
       try {
@@ -872,10 +881,28 @@ async function handleApi(request, env, url, ctx) {
           'UPDATE users SET history_public = ?2, profile_public = ?3 WHERE id = ?1')
           .bind(user.id, historyPublic, profilePublic).run();
       } catch (_) {
-        return fail('Privacy columns are missing. Run: wrangler d1 execute aniwired --remote --file=./schema.sql', 500);
+        return fail('Privacy settings could not be saved', 503, 'settings.unavailable');
       }
       return json({ ok: true, settings: { historyPublic: !!historyPublic, profilePublic: !!profilePublic } });
     }
+  }
+
+  // Private planning list, deliberately independent from playback progress.
+  if (path === '/api/watchlist' || path.startsWith('/api/watchlist/')) {
+    if (!user) return fail('Unauthorized', 401, 'auth.unauthorized');
+    if (path === '/api/watchlist' && method === 'GET') {
+      const { results } = await env.DB.prepare('SELECT * FROM watchlist WHERE user_id = ?1 ORDER BY updated_at DESC').bind(user.id).all();
+      return json({ items: (results || []).map(watchlistRow) });
+    }
+    if (path.startsWith('/api/watchlist/') && method === 'PUT') {
+      const id = decodeURIComponent(path.slice('/api/watchlist/'.length));
+      const item = normalizeWatchlist({ ...body, id });
+      if (!item) return fail('Invalid title or watchlist status', 422);
+      if (!(await rateLimit(env, 'list:' + user.id, 300, 60000))) return fail('Too many list updates', 429);
+      await upsertWatchlist(env, user.id, item);
+      return json({ ok: true });
+    }
+    return fail('Method not allowed', 405);
   }
 
   if (path === '/api/comments' && method === 'POST') {
@@ -886,6 +913,7 @@ async function handleApi(request, env, url, ctx) {
     const animeId = String(body.animeId != null ? body.animeId : '').trim();
     const text = String(body.body || '').trim();
     if (!animeId || animeId.length > 64) return fail('anime id is required', 422);
+    if (body.spoiler !== undefined && typeof body.spoiler !== 'boolean') return fail('spoiler must be a boolean', 422);
     if (!text) return fail('Comment cannot be empty', 422);
     if (text.length > 1000) return fail('Comment is too long (1000 characters max)', 422);
 
@@ -893,10 +921,10 @@ async function handleApi(request, env, url, ctx) {
     const now = Date.now();
     try {
       await env.DB.prepare(
-        'INSERT INTO comments (id, anime_id, anime_name, user_id, body, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
-        .bind(id, animeId, String(body.animeName || '').slice(0, 300), user.id, text, now).run();
+        'INSERT INTO comments (id, anime_id, anime_name, user_id, body, created_at, spoiler) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)')
+        .bind(id, animeId, String(body.animeName || '').slice(0, 300), user.id, text, now, body.spoiler === true ? 1 : 0).run();
     } catch (_) {
-      return fail('Comments table is missing. Run: wrangler d1 execute aniwired --remote --file=./schema.sql', 500);
+      return fail('Comments schema unavailable. Check schema.sql for fresh installs or migrate-v8.sql for existing v7 databases (back up first).', 500);
     }
 
     const me = await loadUserRow(env, 'id', user.id);
@@ -904,7 +932,7 @@ async function handleApi(request, env, url, ctx) {
       ok: true,
       item: commentRow({
         id, anime_id: animeId, anime_name: String(body.animeName || ''), user_id: user.id,
-        body: text, created_at: now,
+        body: text, created_at: now, spoiler: body.spoiler === true ? 1 : 0,
         username: me ? me.username : user.username,
         display_name: me ? me.display_name : '',
         profile_public: me ? me.profile_public : 1,
@@ -1120,7 +1148,11 @@ export default {
           console.error('AniWired config error:', message);
           return done(fail('Server is not configured correctly', 500, 'server.misconfigured'));
         }
-        return done(fail('Server error: ' + message, 500, 'server.error'));
+        if (err && err.code === 'auth.state_unavailable') {
+          return done(fail('Authentication is temporarily unavailable. Try again later.', 503, err.code));
+        }
+        console.error('AniWired API error:', message);
+        return done(fail('An internal error occurred', 500, 'server.error'));
       }
     }
 

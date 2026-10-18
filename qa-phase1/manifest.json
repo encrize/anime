@@ -1,0 +1,173 @@
+{
+  "note": "Clean deliverable excludes original .git/.wrangler/qa runtime artefacts. No production operations executed.",
+  "files": [
+    {
+      "path": ".dev.vars.example",
+      "status": "unchanged",
+      "bytes": 222,
+      "sha256": "526eac58012c3cc24665a8baa14428bc04dcd08cc99a0d99afa660a81bb66150"
+    },
+    {
+      "path": ".gitignore",
+      "status": "unchanged",
+      "bytes": 595,
+      "sha256": "8c4827e30d5fc8f74882d11bdaddea6a797132229e2c9a2e1e3bc976a51cdb15"
+    },
+    {
+      "path": "FIXES-PHASE-1-RU.md",
+      "status": "added",
+      "bytes": 11191,
+      "sha256": "9057d31b7721507d531edc38403e729696681a564a6216e59d993e0b7e293f18"
+    },
+    {
+      "path": "README.md",
+      "status": "modified",
+      "bytes": 10454,
+      "sha256": "fd804e2e3406004ed481dee583738633c22c3d3e43919ccf314aebb3465721e3"
+    },
+    {
+      "path": "UPDATE-RU.md",
+      "status": "added",
+      "bytes": 11700,
+      "sha256": "a2df4ec7ccfd4e5162e7eb5dc9160d13dbdb46cc178a9d0fee4405f8c21bed70"
+    },
+    {
+      "path": "migrate-v6.sql",
+      "status": "added",
+      "bytes": 498,
+      "sha256": "c265df5264d82ddd4e79824805f0b629fe1833392f87020934c9f1faadeb0b05"
+    },
+    {
+      "path": "migrate-v7.sql",
+      "status": "added",
+      "bytes": 200,
+      "sha256": "d125f4ed08234baf839089976c028dc44dd0b503f574a343fbbf1e249e9d177a"
+    },
+    {
+      "path": "package-lock.json",
+      "status": "modified",
+      "bytes": 51034,
+      "sha256": "da44f50e9eb6cfe72794368f84fddc978421ef1940534f388926dd84df500607"
+    },
+    {
+      "path": "package.json",
+      "status": "modified",
+      "bytes": 923,
+      "sha256": "be03ce312d28f6c44ed95568a36e855e68305774c685d858563f6fbd38fac97c"
+    },
+    {
+      "path": "public/_headers",
+      "status": "unchanged",
+      "bytes": 853,
+      "sha256": "33d6f19483e1be5a28a2f0ed2a430171ccb4e6e9688b537ca00546adbcb8bf4b"
+    },
+    {
+      "path": "public/account.js",
+      "status": "modified",
+      "bytes": 96676,
+      "sha256": "a2c9b48d8f027592bde8f3897d10e70964f5b578f2bc15398a73d00784ad2957"
+    },
+    {
+      "path": "public/app.js",
+      "status": "modified",
+      "bytes": 53749,
+      "sha256": "e0d8d49894afba941ef17fb8cfdfd8adbaef0f192ec2d5aa84335802835e73de"
+    },
+    {
+      "path": "public/index.html",
+      "status": "modified",
+      "bytes": 19875,
+      "sha256": "997b742e99e8e2b937e438faf43e6cb7bb03535bdd670e9a843e3281a4dfeba1"
+    },
+    {
+      "path": "public/og.jpg",
+      "status": "unchanged",
+      "bytes": 46549,
+      "sha256": "db69b3d15b314a8e8f159a470afa90f95ed9028b1251b0c96f434ffa5f7e0900"
+    },
+    {
+      "path": "public/player-state.js",
+      "status": "unchanged",
+      "bytes": 3472,
+      "sha256": "69a0472afc2cbe665d793749b35a45f8ad6dc76cc66a52ccd040a0b6514daf2a"
+    },
+    {
+      "path": "public/robots.txt",
+      "status": "unchanged",
+      "bytes": 696,
+      "sha256": "45d59ad25233418001c9f993a8e44661eea0a5f22f85be469aa7ff1080f75ab4"
+    },
+    {
+      "path": "public/styles.css",
+      "status": "unchanged",
+      "bytes": 69365,
+      "sha256": "5415ebb19b628b79c6c41127ec325baefed87f3ed61c3d8a39cf364bb3fd47bc"
+    },
+    {
+      "path": "schema.sql",
+      "status": "modified",
+      "bytes": 5151,
+      "sha256": "a78c16f98ca20341e4b58296c79cd456d6cc669453f8e40f26f3126caefd752d"
+    },
+    {
+      "path": "scripts/check-schema.cjs",
+      "status": "added",
+      "bytes": 1821,
+      "sha256": "2dac074463697ced5ab3225eee6a7f472f4e5d1c9a204723ab8d885c516aa6a7"
+    },
+    {
+      "path": "tests/auth-security.test.cjs",
+      "status": "added",
+      "bytes": 6701,
+      "sha256": "89eb16fb5ec01b5678a06654f328c9755a84cb678ac82b6daaed81c65cbc2d3a"
+    },
+    {
+      "path": "tests/browser.cjs",
+      "status": "modified",
+      "bytes": 8077,
+      "sha256": "4d87970202f492df11e9fd3ac097129f319ee084aa01c2661ef6e824f0979835"
+    },
+    {
+      "path": "tests/identity-browser.cjs",
+      "status": "added",
+      "bytes": 16923,
+      "sha256": "1698306727f8bf1aa9ab63b4c47d13ad9c146b3ed48acbf2e19101a2fac39b72"
+    },
+    {
+      "path": "tests/player-state.test.cjs",
+      "status": "unchanged",
+      "bytes": 2782,
+      "sha256": "9cfa42169d4dfd8e3bd523b0655b1c79c6c9ed5703f80a610639cb77f2b75cd2"
+    },
+    {
+      "path": "tests/schema-preflight.test.cjs",
+      "status": "added",
+      "bytes": 1602,
+      "sha256": "7daacc52520f6b5f27b224e7204ae096bfbc9ddc42345ae008c8d71a22523b72"
+    },
+    {
+      "path": "tests/server.test.cjs",
+      "status": "unchanged",
+      "bytes": 2993,
+      "sha256": "9c261b42dbafc90d1f06738098f583ebf24c9d168617808e8073e6d7a38b9a01"
+    },
+    {
+      "path": "tests/sync-browser.cjs",
+      "status": "modified",
+      "bytes": 5324,
+      "sha256": "1875738f835be7fa124a1852d5f4a69dfda65fd2890ac2bbe9afae4b21c76202"
+    },
+    {
+      "path": "worker/worker.js",
+      "status": "modified",
+      "bytes": 44307,
+      "sha256": "9ac203af28ab43a2edf25ce178ae730c9f2ca97d4ffa90b0ad51e8a8f869fe67"
+    },
+    {
+      "path": "wrangler.toml",
+      "status": "unchanged",
+      "bytes": 655,
+      "sha256": "5d19b0c1418a7c710c08564134adaa3c93e7c7f025596e3625615cc271dbbca6"
+    }
+  ]
+}

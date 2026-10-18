@@ -7,7 +7,7 @@ const fs=require('node:fs');
  page.on('pageerror',e=>errors.push(e.message));
  const remote={id:'al-178789',idx:13,time:1338,duration:1440,source:'kodik',name:'Remote title',epTotal:24,ts:Date.now(),seen:[13],kodik:{mal:123,translation:609,season:2}};
  let authOffline=false, failWrite=true;
- await context.addInitScript(()=>localStorage.setItem('aw:token','mock-auth'));
+ await context.addInitScript(()=>{if(window===top)localStorage.setItem('aw:token','mock-auth')});
  await context.route('**/*',async r=>{
   const req=r.request(),url=req.url();
   if(url.includes('/api/auth/me')){
@@ -21,7 +21,6 @@ const fs=require('node:fs');
    return r.fulfill({json:{ok:true}});
   }
   if(url.endsWith('/api/progress/bulk')){writes.push(...req.postDataJSON().items);return r.fulfill({json:{items:[]}});}
-  if(url.includes('/api/kodik/search')){const tr=Number(new URL(url).searchParams.get('translationId'));return r.fulfill({json:{results:[{link:'https://kodikplayer.com/serial/mock-'+tr+'/hash/720p',translation:{id:tr}}]}});}
   if(url.includes('/api/kodik/token')) return r.fulfill({json:{token:'test'}});
   if(url.includes('/api/')) return r.fulfill({json:{items:[],comments:[],users:[],friends:[]}});
   if(url.includes('graphql.anilist.co')) return r.fulfill({json:{data:{Media:{id:178789,idMal:123,title:{romaji:'Remote title'},episodes:24},Page:{media:[]}}}});
@@ -40,8 +39,8 @@ const fs=require('node:fs');
  await page.evaluate(()=>saveProgress());
  await page.evaluate(()=>openKodikTitle({id:'al-2',_kodik:true,_mal:2,_eps:12,_epsTotal:12,name:{main:'Second remote title'},poster:{src:''}}));
  // A seeded history row avoids the intentionally preserved 30-second history threshold.
- await page.evaluate(()=>{const h=AniWired.readHistory();h['al-2']={id:'al-2',idx:0,source:'kodik',time:10,ts:1,seen:[0]};localStorage.setItem('aniwired:history',JSON.stringify(h))});
- await page.waitForTimeout(70);await send({key:'kodik_player_current_episode',value:{episode:1,translation:{id:888}}});
+ await page.evaluate(()=>{const h=AniWired.readHistory();h['al-2']={id:'al-2',idx:0,source:'kodik',time:10,ts:1,seen:[0]};localStorage.setItem(AniWired.historyKey,JSON.stringify(h))});
+ await page.waitForTimeout(70);await send({key:'kodik_player_video_link',value:{episode:1,translation:{id:888}}});
  await send({key:'kodik_player_time_update',value:45});await page.evaluate(()=>saveProgress());
  await page.evaluate(()=>{Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});document.dispatchEvent(new Event('visibilitychange'));});
  await page.waitForTimeout(180);
